@@ -18,6 +18,8 @@ void *t_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offse
         mflags |= MAP_FIXED;
     }
     void *ret = mmap(addr, length, PROT_READ | PROT_WRITE | PROT_EXEC, mflags, -1, 0);
+    if (ret == MAP_FAILED)
+        return MAP_FAILED;
     memcpy(ret, bd->data, length > bd->len ? bd->len : length);
 
     void *start = (void *)((uintptr_t)ret & (((size_t)-1) ^ (page_size - 1)));
