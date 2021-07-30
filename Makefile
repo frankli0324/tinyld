@@ -1,4 +1,5 @@
 ARCH ?= amd64
+STATIC ?= 0
 ARCHS32 := i386 arm
 ARCHS64 := amd64 arm64
 
@@ -9,12 +10,16 @@ LDFLAGS =
 CFLAGS = -Wall
 # CFLAGS += -pipe -Wall -Wextra -fPIC -fno-ident -fno-stack-protector -U _FORTIFY_SOURCE
 # CFLAGS += -DSTDLIB=$(STDLIB)
-CFLAGS_i386 = -m32 -static
+CFLAGS_i386 = -m32
 
 ifeq "$(filter $(ARCH),$(ARCHS32))" "$(ARCH)"
-  CFLAGS += -DELFCLASS=ELFCLASS32
+  	CFLAGS += -DELFCLASS=ELFCLASS32
 else
-  CFLAGS += -DELFCLASS=ELFCLASS64
+  	CFLAGS += -DELFCLASS=ELFCLASS64
+endif
+
+ifeq "$(STATIC)" "1"
+	CFLAGS += -static
 endif
 
 all: tinyld tinyld.a
