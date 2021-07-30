@@ -21,13 +21,16 @@ static int t_read_shdr(struct Elf_handle_t *handle) {
     total -= t_pread(handle->fd, handle->shdr, total, header->e_shoff);
 
     Elf_Shdr *sh_str = handle->shdr + header->e_shstrndx;
-    char name[64];
+    char *nametab = (char *)malloc(sh_str->sh_size);
+    t_pread(handle->fd, nametab, sh_str->sh_size, sh_str->sh_offset);
     printf("%20s   %-8s   %s\n", "section name", "size", "offset");
     for (int i = 0; i < header->e_shnum; i++) {
-        t_pread(handle->fd, name, 64, sh_str->sh_offset + handle->shdr[i].sh_name);
         printf("%20s 0x%-8lx 0x%lx\n",
-               name, handle->shdr[i].sh_size, handle->shdr[i].sh_offset);
+               nametab + handle->shdr[i].sh_name,
+               handle->shdr[i].sh_size,
+               handle->shdr[i].sh_offset);
     }
+    free(nametab);
     return total;
 }
 
