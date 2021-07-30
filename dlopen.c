@@ -1,70 +1,131 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #include "syscalls.h"
 #include "tinyld.h"
 #include "types.h"
 
-Elf_Ehdr __attribute__((visibility("hidden"))) * t_read_ehdr(struct Elf_handle_t *handle) {
-    Elf_Ehdr *header = (Elf_Ehdr *)malloc(sizeof(Elf_Ehdr));
-    t_lseek(handle->fd, 0, SEEK_SET);
-    t_read(handle->fd, header, sizeof(Elf_Ehdr));
-    return header;
+static size_t page_size = -1;
+
+static int t_read_ehdr(struct Elf_handle_t *handle) {
+    return t_pread(handle->fd, &handle->header, sizeof(Elf_Ehdr), 0) != sizeof(Elf_Ehdr);
 }
 
-Elf_Shdr __attribute__((visibility("hidden"))) * *t_read_shdr(struct Elf_handle_t *handle) {
-    Elf_Ehdr *header = handle->header;
-    t_lseek(handle->fd, handle->header->e_shoff, SEEK_SET);
-    handle->shdr = (Elf_Shdr **)malloc(header->e_shentsize * header->e_shnum);
-    for (int i = 0; i < header->e_phnum; i++) {
-        Elf_Shdr *shdr = (Elf_Shdr *)malloc(header->e_shentsize);
-        t_read(handle->fd, shdr, header->e_shentsize);
-        printf("section name 0x%x\tsize 0x%lx\toffset 0x%lx\n",
-               shdr->sh_name, shdr->sh_size, shdr->sh_offset);
-        handle->shdr[i] = shdr;
+static int t_read_shdr(struct Elf_handle_t *handle) {
+    Elf_Ehdr *header = &handle->header;
+    size_t total = header->e_shentsize * header->e_shnum;
+    handle->shdr = (Elf_Shdr *)malloc(total);
+    total -= t_pread(handle->fd, handle->shdr, total, header->e_shoff);
+
+    Elf_Shdr *sh_str = handle->shdr + header->e_shstrndx;
+    char name[64];
+    printf("%20s   %-8s   %s\n", "section name", "size", "offset");
+    for (int i = 0; i < header->e_shnum; i++) {
+        t_pread(handle->fd, name, 64, sh_str->sh_offset + handle->shdr[i].sh_name);
+        printf("%20s 0x%-8lx 0x%lx\n",
+               name, handle->shdr[i].sh_size, handle->shdr[i].sh_offset);
     }
-    t_lseek(handle->fd, header->e_shstrndx, SEEK_SET);
-    return handle->shdr;
+    return total;
 }
 
-Elf_Phdr __attribute__((visibility("hidden"))) * *t_read_phdr(struct Elf_handle_t *handle) {
-    Elf_Ehdr *header = handle->header;
-    t_lseek(handle->fd, header->e_phoff, SEEK_SET);
-    handle->phdr = (Elf_Phdr **)malloc(header->e_phentsize * header->e_phnum);
-    for (int i = 0; i < header->e_phnum; i++) {
-        Elf_Phdr *phdr = (Elf_Phdr *)malloc(header->e_phentsize);
-        t_read(handle->fd, phdr, header->e_phentsize);
-        handle->phdr[i] = phdr;
-    }
-    return handle->phdr;
+static int t_read_phdr(struct Elf_handle_t *handle) {
+    Elf_Ehdr *header = &handle->header;
+    size_t total = header->e_phentsize * header->e_phnum;
+    handle->phdr = (Elf_Phdr *)malloc(total);
+    total -= t_pread(handle->fd, handle->phdr, total, header->e_phoff);
+    return total;
 }
 
-int __attribute__((visibility("hidden"))) t_load_program(struct Elf_handle_t *handle, int flags) {
-    for (int i = 0; i < handle->header->e_phnum; i++) {
-        if (handle->phdr[i]->p_type == PT_LOAD) {
-            Elf_Phdr *phdr = handle->phdr[i];
-            printf("program type %x\tfilesiz %lx\toffset %lx\n",
-                   phdr->p_type, phdr->p_filesz, phdr->p_offset);
+static int t_premap_segments(struct Elf_handle_t *handle, int flags) {
+    unsigned mem_protect;
+    size_t cnt_seg_load = 0;
+    Elf_Phdr *phdr = handle->phdr;
+    if (handle->mapping_info != NULL)
+        free(handle->mapping_info);
+    handle->mapping_info = (struct Elf_mapping_info_t *)malloc(sizeof(struct Elf_mapping_info_t));
+    handle->mapping_info->addr_max = 0;
+    handle->mapping_info->addr_min = SIZE_MAX;
+    handle->mapping_info->off_start = 0;
+
+    for (int i = 0; i < handle->header.e_phnum; i++, phdr++) {
+        switch (phdr->p_type) {
+        case PT_DYNAMIC:
+            handle->dlinfo = phdr->p_vaddr;
+            printf("program dynamic vaddr %x\tfilesiz %lx\toffset %lx\n",
+                   phdr->p_vaddr, phdr->p_filesz, phdr->p_offset);
+            break;
+        case PT_LOAD:
+            cnt_seg_load++;
+            if (phdr->p_vaddr < handle->mapping_info->addr_min) {
+                handle->mapping_info->addr_min = phdr->p_vaddr;
+                handle->mapping_info->off_start = phdr->p_offset;
+                mem_protect = (((phdr->p_flags & PF_R) ? PROT_READ : 0) |
+                               ((phdr->p_flags & PF_W) ? PROT_WRITE : 0) |
+                               ((phdr->p_flags & PF_X) ? PROT_EXEC : 0));
+            }
+            if (phdr->p_vaddr + phdr->p_memsz > handle->mapping_info->addr_max) {
+                handle->mapping_info->addr_max = phdr->p_vaddr + phdr->p_memsz;
+            }
+            break;
+        case PT_GNU_RELRO:
+            printf("gnu_relro filesiz %lx\toffset %lx\n",
+                   phdr->p_filesz, phdr->p_offset);
+            break;
         }
     }
+
+    if (NULL == (handle->mapping_info->loadmap = (struct Elf_loadmap *)malloc(
+                     sizeof(struct Elf_loadmap) +
+                     cnt_seg_load * sizeof(struct Elf_loadsegs))))
+        return -1;
+    handle->mapping_info->loadmap->nsegs = cnt_seg_load;
+    handle->mapping_info->mem_protect = mem_protect;
     return 0;
 }
 
-void __attribute__((visibility("hidden"))) * t_fdlopen(int fd, int flags) {
+static int t_map_library(struct Elf_handle_t *handle, int flags) {
+    if (handle->dlinfo == 0)
+        return -1; // no dynamic segment found
+    size_t addr_max = handle->mapping_info->addr_max;
+    size_t addr_min = handle->mapping_info->addr_min;
+    off_t off_start = handle->mapping_info->off_start;
+    size_t map_len = addr_max - addr_min + off_start;
+
+    addr_max += page_size - 1;
+    addr_max &= -page_size;
+    addr_min &= -page_size;
+    off_start &= -page_size;
+
+    void *map = t_mmap((void *)addr_min, map_len, handle->mapping_info->mem_protect,
+                       MAP_PRIVATE, handle->fd, off_start);
+    printf("%p\n", map);
+    if (map == MAP_FAILED)
+        return -1;
+}
+
+static void *t_fdlopen(int fd, int flags) {
+    if (page_size == -1)
+        page_size = getpagesize();
     if (fd < 0)
         return NULL;
     struct Elf_handle_t *handle = (struct Elf_handle_t *)malloc(sizeof(struct Elf_handle_t));
     handle->fd = fd;
-    handle->header = t_read_ehdr(handle);
-    printf("program header offset: %ld\n", handle->header->e_phoff);
-    printf("program header count: %d\n", handle->header->e_phnum);
+    t_read_ehdr(handle);
     t_read_phdr(handle);
     t_read_shdr(handle);
-    if (t_load_program(handle, flags) != 0) {
-        // error
-    }
+    if (t_premap_segments(handle, flags) != 0)
+        goto error;
+
+    if (t_map_library(handle, flags) != 0)
+        goto error;
+
     return handle;
+error:
+    t_dlclose(handle);
+    return NULL;
 }
 
 void *t_dlopen(const char *path, int flags) {

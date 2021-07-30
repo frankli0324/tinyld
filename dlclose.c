@@ -4,23 +4,17 @@
 #include "tinyld.h"
 #include "types.h"
 
-#define free_arr(arr, count)                \
-    {                                       \
-        for (int i = 0; i < (count); i++) { \
-            free(arr[i]);                   \
-            arr[i] = NULL;                  \
-        }                                   \
-        free(arr);                          \
-        arr = NULL;                         \
-    }
-
 int __attribute__((visibility("hidden"))) _t_dlclose(struct Elf_handle_t *handle) {
     t_close(handle->fd);
+    if (handle->mapping_info != NULL) {
+        // unmap elf
+        free(handle->mapping_info);
+    }
     if (handle->phdr != NULL)
-        free_arr(handle->phdr, handle->header->e_phnum);
+        free(handle->phdr);
     if (handle->shdr != NULL)
-        free_arr(handle->shdr, handle->header->e_shnum);
-    free(handle->header);
+        free(handle->shdr);
+    free(handle);
     return 0;
 }
 
