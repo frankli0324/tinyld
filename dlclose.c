@@ -5,6 +5,8 @@
 #include "types.h"
 
 int __attribute__((visibility("hidden"))) _t_dlclose(struct Elf_handle_t *handle) {
+    if (handle == NULL)
+        return 0;
     t_close(handle->fd);
     if (handle->mapping_info != NULL) {
         // unmap elf

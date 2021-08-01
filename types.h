@@ -14,6 +14,7 @@
 #define Elf_Off Elf32_Off
 #define Elf_Half Elf32_Half
 #define Elf_Addr Elf32_Addr
+#define Elf_Sym Elf32_Sym
 #define Elf_auxv_t Elf32_auxv_t
 #else
 #define Elf_Ehdr Elf64_Ehdr
@@ -22,6 +23,7 @@
 #define Elf_Off Elf64_Off
 #define Elf_Half Elf64_Half
 #define Elf_Addr Elf64_Addr
+#define Elf_Sym Elf64_Sym
 #define Elf_auxv_t Elf64_auxv_t
 #endif
 
@@ -35,10 +37,19 @@ struct Elf_loadmap {
 };
 
 struct Elf_mapping_info_t {
+    void *base;
     size_t addr_min, addr_max;
     off_t off_start;
-    unsigned mem_protect;
     struct Elf_loadmap *loadmap;
+};
+
+struct Elf_dynamic_info_t {
+    Elf_Addr vaddr;
+    Elf_Sym *symtab;
+    char *strtab;
+    uint32_t *hashtab;
+    // musl libc says on "S390x" systems hashtab_t is `uint64_t`, what's that?
+    // https://en.wikipedia.org/wiki/Linux_on_IBM_Z
 };
 
 struct Elf_handle_t {
@@ -46,8 +57,8 @@ struct Elf_handle_t {
     Elf_Ehdr header;
     Elf_Phdr *phdr;
     Elf_Shdr *shdr;
-    Elf_Addr dlinfo;
     struct Elf_mapping_info_t *mapping_info;
+    struct Elf_dynamic_info_t *dl_info;
 };
 
 #endif // TYPES_H

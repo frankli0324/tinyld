@@ -20,14 +20,13 @@ void *t_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offse
     void *ret = mmap(addr, length, PROT_READ | PROT_WRITE | PROT_EXEC, mflags, -1, 0);
     if (ret == MAP_FAILED)
         return MAP_FAILED;
-    memcpy(ret, bd->data, length > bd->len ? bd->len : length);
+    memcpy(ret, bd->data + offset, length > bd->len - offset ? bd->len - offset : length);
 
     void *start = (void *)((uintptr_t)ret & (((size_t)-1) ^ (page_size - 1)));
     while (start < ret) {
         mprotect(start, page_size, prot);
         start += page_size;
     }
-    printf("mmap : [0x%lx,0x%lx]", (uint64_t)ret, (uint64_t)ret + length);
     return ret;
 }
 

@@ -49,6 +49,8 @@ static int t_premap_segments(struct Elf_handle_t *handle, int flags) {
     if (handle->mapping_info != NULL)
         free(handle->mapping_info);
     handle->mapping_info = (struct Elf_mapping_info_t *)malloc(sizeof(struct Elf_mapping_info_t));
+    handle->dl_info = (struct Elf_dynamic_info_t *)malloc(sizeof(struct Elf_dynamic_info_t));
+    handle->mapping_info->base = NULL;
     handle->mapping_info->addr_max = 0;
     handle->mapping_info->addr_min = SIZE_MAX;
     handle->mapping_info->off_start = 0;
@@ -56,18 +58,15 @@ static int t_premap_segments(struct Elf_handle_t *handle, int flags) {
     for (int i = 0; i < handle->header.e_phnum; i++, phdr++) {
         switch (phdr->p_type) {
         case PT_DYNAMIC:
-            handle->dlinfo = phdr->p_vaddr;
-            printf("program dynamic vaddr %x\tfilesiz %lx\toffset %lx\n",
-                   phdr->p_vaddr, phdr->p_filesz, phdr->p_offset);
+            handle->dl_info->vaddr = phdr->p_vaddr;
+            printf("program dynamic offset %x\tfilesiz %lx\toffset %lx\n",
+                   phdr->p_offset, phdr->p_filesz, phdr->p_offset);
             break;
         case PT_LOAD:
             cnt_seg_load++;
             if (phdr->p_vaddr < handle->mapping_info->addr_min) {
                 handle->mapping_info->addr_min = phdr->p_vaddr;
                 handle->mapping_info->off_start = phdr->p_offset;
-                mem_protect = (((phdr->p_flags & PF_R) ? PROT_READ : 0) |
-                               ((phdr->p_flags & PF_W) ? PROT_WRITE : 0) |
-                               ((phdr->p_flags & PF_X) ? PROT_EXEC : 0));
             }
             if (phdr->p_vaddr + phdr->p_memsz > handle->mapping_info->addr_max) {
                 handle->mapping_info->addr_max = phdr->p_vaddr + phdr->p_memsz;
@@ -85,12 +84,11 @@ static int t_premap_segments(struct Elf_handle_t *handle, int flags) {
                      cnt_seg_load * sizeof(struct Elf_loadsegs))))
         return -1;
     handle->mapping_info->loadmap->nsegs = cnt_seg_load;
-    handle->mapping_info->mem_protect = mem_protect;
     return 0;
 }
 
 static int t_map_library(struct Elf_handle_t *handle, int flags) {
-    if (handle->dlinfo == 0)
+    if (handle->dl_info == NULL)
         return -1; // no dynamic segment found
     size_t addr_max = handle->mapping_info->addr_max;
     size_t addr_min = handle->mapping_info->addr_min;
@@ -102,11 +100,37 @@ static int t_map_library(struct Elf_handle_t *handle, int flags) {
     addr_min &= -page_size;
     off_start &= -page_size;
 
-    void *map = t_mmap((void *)addr_min, map_len, handle->mapping_info->mem_protect,
-                       MAP_PRIVATE, handle->fd, off_start);
-    printf("%p\n", map);
-    if (map == MAP_FAILED)
+    void *base = t_mmap(NULL, map_len,
+                        PROT_EXEC | PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (base == MAP_FAILED)
         return -1;
+    /* from musl libc, doesn't know why:
+     * If the loaded file is not relocatable and the requested address is
+	 * not available, then the load operation must fail. */
+    if (handle->header.e_type != ET_DYN && addr_min && base != (void *)addr_min)
+        return -1;
+    // enough space for following mapping process
+    handle->mapping_info->base = base - addr_min; // successfully mapped
+
+    Elf_Phdr *phdr = handle->phdr;
+    // start mapping each segment in place
+    for (int i = 0; i < handle->header.e_phnum; i++, phdr++) {
+        if (phdr->p_type != PT_LOAD)
+            continue;
+        size_t addr_low = phdr->p_vaddr & -page_size;
+        size_t addr_high = phdr->p_vaddr + phdr->p_memsz + page_size - 1 & -page_size;
+        off_t off_start = phdr->p_offset & -page_size;
+        unsigned prot = (((phdr->p_flags & PF_R) ? PROT_READ : 0) |
+                         ((phdr->p_flags & PF_W) ? PROT_WRITE : 0) |
+                         ((phdr->p_flags & PF_X) ? PROT_EXEC : 0));
+        if (t_mmap(base + addr_low, addr_high - addr_low,
+                   prot, MAP_PRIVATE | MAP_FIXED,
+                   handle->fd, off_start) == MAP_FAILED) {
+            return -1;
+        }
+    }
+    return 0;
 }
 
 static void *t_fdlopen(int fd, int flags) {
@@ -114,7 +138,9 @@ static void *t_fdlopen(int fd, int flags) {
         page_size = getpagesize();
     if (fd < 0)
         return NULL;
-    struct Elf_handle_t *handle = (struct Elf_handle_t *)malloc(sizeof(struct Elf_handle_t));
+    struct Elf_handle_t *handle = (struct Elf_handle_t *)calloc(1, sizeof(struct Elf_handle_t));
+    if (handle == NULL)
+        goto error;
     handle->fd = fd;
     t_read_ehdr(handle);
     t_read_phdr(handle);
