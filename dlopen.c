@@ -1,4 +1,3 @@
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -48,12 +47,9 @@ static int t_premap_segments(struct Elf_handle_t *handle, int flags) {
     Elf_Phdr *phdr = handle->phdr;
     if (handle->mapping_info != NULL)
         free(handle->mapping_info);
-    handle->mapping_info = (struct Elf_mapping_info_t *)malloc(sizeof(struct Elf_mapping_info_t));
-    handle->dl_info = (struct Elf_dynamic_info_t *)malloc(sizeof(struct Elf_dynamic_info_t));
-    handle->mapping_info->base = NULL;
-    handle->mapping_info->addr_max = 0;
+    handle->mapping_info = (struct Elf_mapping_info_t *)calloc(1, sizeof(struct Elf_mapping_info_t));
+    handle->dl_info = (struct Elf_dynamic_info_t *)calloc(1, sizeof(struct Elf_dynamic_info_t));
     handle->mapping_info->addr_min = SIZE_MAX;
-    handle->mapping_info->off_start = 0;
 
     for (int i = 0; i < handle->header.e_phnum; i++, phdr++) {
         switch (phdr->p_type) {
@@ -133,6 +129,33 @@ static int t_map_library(struct Elf_handle_t *handle, int flags) {
     return 0;
 }
 
+static int t_decode_dynamic(struct Elf_handle_t *handle) {
+    void *base = handle->mapping_info->base;
+    size_t *dynv = base + handle->dl_info->vaddr;
+    for (int i = 0; dynv[i]; i += 2) {
+#define value (base + dynv[i + 1])
+#define case_assign(c, assign) \
+    case c:                    \
+        assign = value;        \
+        break;
+
+        switch (dynv[i]) {
+            case_assign(DT_PLTGOT, handle->dl_info->got);
+            case_assign(DT_HASH, handle->dl_info->hashtab);
+            case_assign(DT_STRTAB, handle->dl_info->strtab);
+            case_assign(DT_SYMTAB, handle->dl_info->symtab);
+        case DT_RUNPATH:
+            printf("library search path offset: %s\n", dynv[i + 1]);
+            break;
+            case_assign(DT_GNU_HASH, handle->dl_info->ghashtab);
+            case_assign(DT_VERSYM, handle->dl_info->gversym); // .gnu.version section addr
+        }
+
+#undef case_assign
+#undef value
+    }
+}
+
 static void *t_fdlopen(int fd, int flags) {
     if (page_size == -1)
         page_size = getpagesize();
@@ -149,6 +172,9 @@ static void *t_fdlopen(int fd, int flags) {
         goto error;
 
     if (t_map_library(handle, flags) != 0)
+        goto error;
+
+    if (t_decode_dynamic(handle) != 0)
         goto error;
 
     return handle;

@@ -6,6 +6,7 @@
 #else
 #include "elf.h"
 #endif
+#include <fcntl.h>
 
 #if ELFCLASS == ELFCLASS32
 #define Elf_Ehdr Elf32_Ehdr
@@ -27,6 +28,11 @@
 #define Elf_auxv_t Elf64_auxv_t
 #endif
 
+typedef uint32_t Elf_Hashtab;
+// musl libc says on "S390x" systems hashtab_t is `uint64_t`, what's that?
+// https://en.wikipedia.org/wiki/Linux_on_IBM_Z
+typedef uint32_t Elf_GHashtab;
+
 struct Elf_loadsegs {
     uintptr_t addr, p_vaddr, p_memsz;
 };
@@ -47,9 +53,10 @@ struct Elf_dynamic_info_t {
     Elf_Addr vaddr;
     Elf_Sym *symtab;
     char *strtab;
-    uint32_t *hashtab;
-    // musl libc says on "S390x" systems hashtab_t is `uint64_t`, what's that?
-    // https://en.wikipedia.org/wiki/Linux_on_IBM_Z
+    void *got;
+    Elf_Hashtab *hashtab;   // sysv hashtab
+    Elf_GHashtab *ghashtab; // gnu hashtab
+    int16_t *gversym;       // gnu version
 };
 
 struct Elf_handle_t {
