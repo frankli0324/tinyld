@@ -3,7 +3,7 @@ STATIC ?= 0
 ARCHS32 := i386 arm
 ARCHS64 := amd64 arm64
 
-SRC = dlopen.c dlclose.c $(wildcard syscalls/*.c)
+SRC = dlopen.c dlsym.c dlclose.c $(wildcard syscalls/*.c)
 HEADER = tinyld.h types.h syscalls.h
 OBJS = $(SRC:.c=.o)
 LDFLAGS =
