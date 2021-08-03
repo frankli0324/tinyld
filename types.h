@@ -9,23 +9,11 @@
 #include <fcntl.h>
 
 #if ELFCLASS == ELFCLASS32
-#define Elf_Ehdr Elf32_Ehdr
-#define Elf_Phdr Elf32_Phdr
-#define Elf_Shdr Elf32_Shdr
-#define Elf_Off Elf32_Off
-#define Elf_Half Elf32_Half
-#define Elf_Addr Elf32_Addr
-#define Elf_Sym Elf32_Sym
-#define Elf_auxv_t Elf32_auxv_t
+#include "arch/i386/reloc.h"
+#include "arch/i386/types.h"
 #else
-#define Elf_Ehdr Elf64_Ehdr
-#define Elf_Phdr Elf64_Phdr
-#define Elf_Shdr Elf64_Shdr
-#define Elf_Off Elf64_Off
-#define Elf_Half Elf64_Half
-#define Elf_Addr Elf64_Addr
-#define Elf_Sym Elf64_Sym
-#define Elf_auxv_t Elf64_auxv_t
+#include "arch/amd64/relocs.h"
+#include "arch/amd64/types.h"
 #endif
 
 typedef uint32_t Elf_Hashtab;
@@ -34,7 +22,8 @@ typedef uint32_t Elf_Hashtab;
 typedef uint32_t Elf_GHashtab;
 
 struct Elf_loadsegs {
-    uintptr_t addr, p_vaddr, p_memsz;
+    void *addr;
+    size_t phdr_ndx;
 };
 
 struct Elf_loadmap {
@@ -51,12 +40,16 @@ struct Elf_mapping_info_t {
 
 struct Elf_dynamic_info_t {
     Elf_Addr vaddr;
-    Elf_Sym *symtab;
     char *strtab;
     void *got;
+    Elf_Sym *symtab;
     Elf_Hashtab *hashtab;   // sysv hashtab
     Elf_GHashtab *ghashtab; // gnu hashtab
     int16_t *gversym;       // gnu version
+};
+
+struct Elf_reloc_info_t {
+    size_t relro_start, relro_end;
 };
 
 struct Elf_handle_t {
@@ -66,6 +59,7 @@ struct Elf_handle_t {
     Elf_Shdr *shdr;
     struct Elf_mapping_info_t *mapping_info;
     struct Elf_dynamic_info_t *dl_info;
+    struct Elf_reloc_info_t *reloc_info;
 };
 
 #endif // TYPES_H

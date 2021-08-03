@@ -89,7 +89,7 @@ static size_t t_count_sym(struct Elf_handle_t *handle) {
 }
 
 static void *t_find_sym(struct Elf_handle_t *handle, const char *symbol) {
-    printf("%d\n", t_count_sym(handle));
+    printf("total symbols: %d\n", t_count_sym(handle));
     if (handle->dl_info->ghashtab != NULL)
         return gnu_lookup(handle, symbol, gnu_hash(symbol));
     else

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include "syscalls.h"
 #include "tinyld.h"
@@ -49,14 +50,13 @@ static int t_premap_segments(struct Elf_handle_t *handle, int flags) {
         free(handle->mapping_info);
     handle->mapping_info = (struct Elf_mapping_info_t *)calloc(1, sizeof(struct Elf_mapping_info_t));
     handle->dl_info = (struct Elf_dynamic_info_t *)calloc(1, sizeof(struct Elf_dynamic_info_t));
+    handle->reloc_info = (struct Elf_reloc_info_t *)calloc(1, sizeof(struct Elf_reloc_info_t));
     handle->mapping_info->addr_min = SIZE_MAX;
 
     for (int i = 0; i < handle->header.e_phnum; i++, phdr++) {
         switch (phdr->p_type) {
         case PT_DYNAMIC:
             handle->dl_info->vaddr = phdr->p_vaddr;
-            printf("program dynamic offset %x\tfilesiz %lx\toffset %lx\n",
-                   phdr->p_offset, phdr->p_filesz, phdr->p_offset);
             break;
         case PT_LOAD:
             cnt_seg_load++;
@@ -69,8 +69,8 @@ static int t_premap_segments(struct Elf_handle_t *handle, int flags) {
             }
             break;
         case PT_GNU_RELRO:
-            printf("gnu_relro filesiz %lx\toffset %lx\n",
-                   phdr->p_filesz, phdr->p_offset);
+            handle->reloc_info->relro_start = phdr->p_vaddr & -page_size;
+            handle->reloc_info->relro_end = (phdr->p_vaddr + phdr->p_memsz) & -page_size;
             break;
         }
     }
@@ -125,6 +125,8 @@ static int t_map_library(struct Elf_handle_t *handle, int flags) {
                    handle->fd, off_start) == MAP_FAILED) {
             return -1;
         }
+        handle->mapping_info->loadmap->segs[i].addr = base + addr_low;
+        handle->mapping_info->loadmap->segs[i].phdr_ndx = i;
     }
     return 0;
 }
@@ -156,6 +158,59 @@ static int t_decode_dynamic(struct Elf_handle_t *handle) {
     }
 }
 
+static void t_do_relocate(struct Elf_handle_t *handle, size_t *rel, size_t rel_size, size_t step) {
+    Elf_Sym *symtab = handle->dl_info->symtab;
+    char *strtab = handle->dl_info->strtab;
+    printf("rel_size %d\n", rel_size);
+    for (; rel_size; rel += step, rel_size -= step * sizeof(size_t)) {
+        int type = ELF_R_TYPE(rel[1]);
+        if (type == R_(NONE))
+            continue;
+        size_t *reloc_addr = handle->mapping_info->base + rel[0];
+        int symndx = ELF_R_SYM(rel[1]);
+        printf("symndx: %d\n", symndx);
+        printf("%s\n", symtab[symndx].st_name + strtab);
+        size_t addend = step == 3 ? rel[2] : *reloc_addr;
+        switch (type) {
+        case R_(PC32):
+            addend -= (size_t)reloc_addr;
+        case R_(SYMBOLIC):  //direct
+        case R_(GLOB_DAT):  // got
+        case R_(JUMP_SLOT): // plt
+            *reloc_addr = symtab[symndx].st_value + addend;
+            break;
+        case R_(COPY):
+            printf("copy reloc\n");
+            break;
+        case R_(RELATIVE):
+            printf("relative\n");
+        }
+    }
+}
+
+static int t_relocate_handle(struct Elf_handle_t *handle) {
+    void *base = handle->mapping_info->base;
+    size_t *dynv = base + handle->dl_info->vaddr;
+    size_t dynv_vec[35] = {0}; // C99 [$6.7.8/21]
+    for (int i = 0; dynv[i]; i += 2)
+        if (dynv[i] >= 0 && dynv[i] < 35)
+            dynv_vec[dynv[i]] = dynv[i + 1];
+    t_do_relocate(handle, handle->mapping_info->base + dynv_vec[DT_JMPREL], dynv_vec[DT_PLTRELSZ], 2 + (dynv_vec[DT_PLTREL] == DT_RELA));
+    t_do_relocate(handle, handle->mapping_info->base + dynv_vec[DT_REL], dynv_vec[DT_RELSZ], 2);
+    t_do_relocate(handle, handle->mapping_info->base + dynv_vec[DT_RELA], dynv_vec[DT_RELASZ], 3);
+    if (handle->reloc_info->relro_start != handle->reloc_info->relro_end) {
+        if (mprotect(
+                handle->mapping_info->base + handle->reloc_info->relro_start,
+                handle->reloc_info->relro_end - handle->reloc_info->relro_start,
+                PROT_READ)) {
+            if (0 || errno != ENOSYS) {
+                perror("Error relocating: RELRO protection failed: %m");
+            }
+        }
+    }
+    return 0;
+}
+
 static void *t_fdlopen(int fd, int flags) {
     if (page_size == -1)
         page_size = getpagesize();
@@ -175,6 +230,12 @@ static void *t_fdlopen(int fd, int flags) {
         goto error;
 
     if (t_decode_dynamic(handle) != 0)
+        goto error;
+
+    // TODO: load DT_NEEDED
+    // only static libraies allowed without this
+
+    if (t_relocate_handle(handle) != 0)
         goto error;
 
     return handle;

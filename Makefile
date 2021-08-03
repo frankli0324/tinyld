@@ -34,4 +34,4 @@ tinyld.a: $(OBJS)
 	$(CC) -c -o $@ $< $(LDFLAGS)
 
 clean:
-	rm -f tinyld $(OBJS)
+	rm -f tinyld tinyld.a $(OBJS)
