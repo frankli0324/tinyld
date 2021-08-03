@@ -96,6 +96,11 @@ static void *t_find_sym(struct Elf_handle_t *handle, const char *symbol) {
         return sysv_lookup(handle, symbol, sysv_hash(symbol));
 }
 
+static inline void *_t_dlsym(struct Elf_handle_t *handle, const char *symbol) {
+    Elf_Sym *sym = t_find_sym(handle, symbol);
+    return handle->mapping_info->base + sym->st_value;
+}
+
 void *t_dlsym(void *handle, const char *symbol) {
     if (handle == RTLD_DEFAULT) {
     }
@@ -106,5 +111,5 @@ void *t_dlsym(void *handle, const char *symbol) {
 
     if (0) { // https://github.com/mickael-guene/fdpic_doc/blob/master/abi.txt
     }
-    return t_find_sym(handle, symbol);
+    return _t_dlsym(handle, symbol);
 }

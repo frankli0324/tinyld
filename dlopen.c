@@ -1,8 +1,9 @@
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
-#include <errno.h>
 
 #include "syscalls.h"
 #include "tinyld.h"
@@ -159,9 +160,9 @@ static int t_decode_dynamic(struct Elf_handle_t *handle) {
 }
 
 static void t_do_relocate(struct Elf_handle_t *handle, size_t *rel, size_t rel_size, size_t step) {
+    void *base = handle->mapping_info->base;
     Elf_Sym *symtab = handle->dl_info->symtab;
     char *strtab = handle->dl_info->strtab;
-    printf("rel_size %d\n", rel_size);
     for (; rel_size; rel += step, rel_size -= step * sizeof(size_t)) {
         int type = ELF_R_TYPE(rel[1]);
         if (type == R_(NONE))
@@ -179,11 +180,15 @@ static void t_do_relocate(struct Elf_handle_t *handle, size_t *rel, size_t rel_s
         case R_(JUMP_SLOT): // plt
             *reloc_addr = symtab[symndx].st_value + addend;
             break;
-        case R_(COPY):
-            printf("copy reloc\n");
-            break;
         case R_(RELATIVE):
-            printf("relative\n");
+            *reloc_addr = (size_t)base + addend;
+            break;
+        case R_(COPY):
+            memcpy(reloc_addr, base + symtab[symndx].st_value, symtab[symndx].st_size);
+            break;
+        default:
+            printf("unable to relocate type %d\n", type);
+            exit(-1);
         }
     }
 }
