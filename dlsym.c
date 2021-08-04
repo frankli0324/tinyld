@@ -1,8 +1,7 @@
-#include <stdio.h>
 #include <string.h>
 
+#include "internals.h"
 #include "tinyld.h"
-#include "types.h"
 
 static uint32_t sysv_hash(const char *s0) {
     const unsigned char *s = (void *)s0;
@@ -89,7 +88,6 @@ static size_t t_count_sym(struct Elf_handle_t *handle) {
 }
 
 static void *t_find_sym(struct Elf_handle_t *handle, const char *symbol) {
-    printf("total symbols: %d\n", t_count_sym(handle));
     if (handle->dl_info->ghashtab != NULL)
         return gnu_lookup(handle, symbol, gnu_hash(symbol));
     else

@@ -1,6 +1,8 @@
 .vscode
 .ccls-cache
+.clang-format
 
+tinyld
 *.o
 *.a
 *.so

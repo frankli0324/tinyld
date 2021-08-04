@@ -1,13 +1,12 @@
 #include <errno.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include "internals.h"
 #include "syscalls.h"
 #include "tinyld.h"
-#include "types.h"
 
 static size_t page_size = -1;
 
@@ -20,18 +19,6 @@ static int t_read_shdr(struct Elf_handle_t *handle) {
     size_t total = header->e_shentsize * header->e_shnum;
     handle->shdr = (Elf_Shdr *)malloc(total);
     total -= t_pread(handle->fd, handle->shdr, total, header->e_shoff);
-
-    Elf_Shdr *sh_str = handle->shdr + header->e_shstrndx;
-    char *nametab = (char *)malloc(sh_str->sh_size);
-    t_pread(handle->fd, nametab, sh_str->sh_size, sh_str->sh_offset);
-    printf("%20s   %-8s   %s\n", "section name", "size", "offset");
-    for (int i = 0; i < header->e_shnum; i++) {
-        printf("%20s 0x%-8lx 0x%lx\n",
-               nametab + handle->shdr[i].sh_name,
-               handle->shdr[i].sh_size,
-               handle->shdr[i].sh_offset);
-    }
-    free(nametab);
     return total;
 }
 
@@ -148,7 +135,7 @@ static int t_decode_dynamic(struct Elf_handle_t *handle) {
             case_assign(DT_STRTAB, handle->dl_info->strtab);
             case_assign(DT_SYMTAB, handle->dl_info->symtab);
         case DT_RUNPATH:
-            printf("library search path offset: %s\n", dynv[i + 1]);
+            // printf("library search path offset: %s\n", dynv[i + 1]);
             break;
             case_assign(DT_GNU_HASH, handle->dl_info->ghashtab);
             case_assign(DT_VERSYM, handle->dl_info->gversym); // .gnu.version section addr
@@ -169,8 +156,6 @@ static void t_do_relocate(struct Elf_handle_t *handle, size_t *rel, size_t rel_s
             continue;
         size_t *reloc_addr = handle->mapping_info->base + rel[0];
         int symndx = ELF_R_SYM(rel[1]);
-        printf("symndx: %d\n", symndx);
-        printf("%s\n", symtab[symndx].st_name + strtab);
         size_t addend = step == 3 ? rel[2] : *reloc_addr;
         switch (type) {
         case R_(PC32):
@@ -187,7 +172,7 @@ static void t_do_relocate(struct Elf_handle_t *handle, size_t *rel, size_t rel_s
             memcpy(reloc_addr, base + symtab[symndx].st_value, symtab[symndx].st_size);
             break;
         default:
-            printf("unable to relocate type %d\n", type);
+            // printf("unable to relocate type %d\n", type);
             exit(-1);
         }
     }
@@ -209,7 +194,7 @@ static int t_relocate_handle(struct Elf_handle_t *handle) {
                 handle->reloc_info->relro_end - handle->reloc_info->relro_start,
                 PROT_READ)) {
             if (0 || errno != ENOSYS) {
-                perror("Error relocating: RELRO protection failed: %m");
+                // Error relocating: RELRO protection failed
             }
         }
     }

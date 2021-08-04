@@ -1,8 +1,8 @@
 #include <stdlib.h>
 
+#include "internals.h"
 #include "syscalls.h"
 #include "tinyld.h"
-#include "types.h"
 
 int __attribute__((visibility("hidden"))) _t_dlclose(struct Elf_handle_t *handle) {
     if (handle == NULL)

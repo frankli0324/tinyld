@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include "syscalls.h"
 #include "tinyld.h"
 #include "types.h"
 
