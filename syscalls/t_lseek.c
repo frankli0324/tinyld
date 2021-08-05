@@ -4,7 +4,7 @@
 
 off_t t_lseek(int fd, off_t offset, int whence) {
     if (fd < 64 || blob_fds[fd - BD_BASE] == NULL)
-        return lseek(fd, offset, whence);
+        return syscall(SYS_lseek, fd, offset, whence);
     struct bd_t *bd = blob_fds[fd - BD_BASE];
     if (whence == SEEK_SET) {
         if (bd->len > offset)

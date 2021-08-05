@@ -19,7 +19,7 @@ int t_blob_open(const void *blob, int len) {
 
 int t_close(int fd) {
     if (fd < 64 || blob_fds[fd - BD_BASE] == NULL)
-        return close(fd);
+        return syscall(SYS_close, fd);
     struct bd_t *bd = blob_fds[fd - BD_BASE];
     free((void *)bd->data);
     bd->data = bd->ptr = NULL;

@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "internals.h"
+#include "libc.h"
 #include "tinyld.h"
 
 static uint32_t sysv_hash(const char *s0) {
@@ -19,7 +20,7 @@ static Elf_Sym *sysv_lookup(struct Elf_handle_t *handle, const char *s, uint32_t
     int16_t *gversym = handle->dl_info->gversym;
     char *strtab = handle->dl_info->strtab;
     for (size_t i = hashtab[2 + h % hashtab[0]]; i; i = hashtab[2 + hashtab[0] + i]) {
-        if ((!gversym || gversym[i] >= 0) && (!strcmp(s, strtab + syms[i].st_name)))
+        if ((!gversym || gversym[i] >= 0) && (!t_strcmp(s, strtab + syms[i].st_name)))
             return syms + i;
     }
     return 0;
@@ -55,7 +56,7 @@ static Elf_Sym *gnu_lookup(struct Elf_handle_t *handle, const char *s, uint32_t 
     uint32_t *hashval = buckets + nbuckets + (i - hashtab[1]);
     for (h |= 1;; i++) {
         uint32_t h2 = *hashval++;
-        if ((h == (h2 | 1)) && (!gversym || gversym[i] >= 0) && !strcmp(s, strtab + syms[i].st_name))
+        if ((h == (h2 | 1)) && (!gversym || gversym[i] >= 0) && !t_strcmp(s, strtab + syms[i].st_name))
             return syms + i;
         if (h2 & 1)
             break;

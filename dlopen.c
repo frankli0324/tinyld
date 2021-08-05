@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include "internals.h"
+#include "libc.h"
 #include "syscalls.h"
 #include "tinyld.h"
 
@@ -169,11 +170,11 @@ static void t_do_relocate(struct Elf_handle_t *handle, size_t *rel, size_t rel_s
             *reloc_addr = (size_t)base + addend;
             break;
         case R_(COPY):
-            memcpy(reloc_addr, base + symtab[symndx].st_value, symtab[symndx].st_size);
+            t_memcpy(reloc_addr, base + symtab[symndx].st_value, symtab[symndx].st_size);
             break;
         default:
             // printf("unable to relocate type %d\n", type);
-            exit(-1);
+            syscall(SYS_exit, -1);
         }
     }
 }
@@ -189,7 +190,7 @@ static int t_relocate_handle(struct Elf_handle_t *handle) {
     t_do_relocate(handle, handle->mapping_info->base + dynv_vec[DT_REL], dynv_vec[DT_RELSZ], 2);
     t_do_relocate(handle, handle->mapping_info->base + dynv_vec[DT_RELA], dynv_vec[DT_RELASZ], 3);
     if (handle->reloc_info->relro_start != handle->reloc_info->relro_end) {
-        if (mprotect(
+        if (t_mprotect(
                 handle->mapping_info->base + handle->reloc_info->relro_start,
                 handle->reloc_info->relro_end - handle->reloc_info->relro_start,
                 PROT_READ)) {
@@ -235,7 +236,7 @@ error:
 }
 
 void *t_dlopen(const char *path, int flags) {
-    int fd = open(path, O_RDONLY);
+    int fd = syscall(SYS_open, path, O_RDONLY);
     if (fd == -1)
         return NULL;
     return t_fdlopen(fd, flags);
