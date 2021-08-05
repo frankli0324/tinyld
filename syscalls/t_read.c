@@ -5,7 +5,7 @@
 
 ssize_t t_read(int fd, void *buf, size_t count) {
     if (fd < 64 || blob_fds[fd - BD_BASE] == NULL)
-        return read(fd, buf, count);
+        return syscall(SYS_read, fd, buf, count);
     struct bd_t *bd = blob_fds[fd - BD_BASE];
     if (bd->ptr - bd->data == bd->len)
         return -1; // EOF
@@ -19,8 +19,10 @@ ssize_t t_read(int fd, void *buf, size_t count) {
 }
 
 ssize_t t_pread(int fd, void *buf, size_t nbyte, off_t offset) {
-    if (fd < 64 || blob_fds[fd - BD_BASE] == NULL)
-        return pread(fd, buf, nbyte, offset);
+    if (fd < 64 || blob_fds[fd - BD_BASE] == NULL) {
+        // https://man7.org/linux/man-pages/man2/syscall.2.html#:~:text=Welcome
+        return syscall(SYS_pread64, fd, buf, nbyte, offset);
+    }
     struct bd_t *bd = blob_fds[fd - BD_BASE];
     unsigned char *p = buf;
     for (ssize_t i = 0; i < nbyte; i++) {

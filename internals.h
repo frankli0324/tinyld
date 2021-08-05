@@ -8,13 +8,8 @@
 #endif
 #include <fcntl.h>
 
-#if ELFCLASS == ELFCLASS32
-#include "arch/i386/reloc.h"
-#include "arch/i386/types.h"
-#else
-#include "arch/amd64/relocs.h"
-#include "arch/amd64/types.h"
-#endif
+#include "arch/target/relocs.h"
+#include "arch/target/types.h"
 
 typedef uint32_t Elf_Hashtab;
 // musl libc says on "S390x" systems hashtab_t is `uint64_t`, what's that?
