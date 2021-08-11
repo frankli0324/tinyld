@@ -149,6 +149,7 @@ static int t_decode_dynamic(struct Elf_handle_t *handle) {
 
 static void t_do_relocate(struct Elf_handle_t *handle, size_t *rel, size_t rel_size, size_t step) {
     void *base = handle->mapping_info->base;
+    size_t *got = handle->dl_info->got;
     Elf_Sym *symtab = handle->dl_info->symtab;
     char *strtab = handle->dl_info->strtab;
     for (; rel_size; rel += step, rel_size -= step * sizeof(size_t)) {
@@ -157,6 +158,17 @@ static void t_do_relocate(struct Elf_handle_t *handle, size_t *rel, size_t rel_s
             continue;
         size_t *reloc_addr = handle->mapping_info->base + rel[0];
         int symndx = ELF_R_SYM(rel[1]);
+        if (symndx != 0) { // symbol relocation
+            // printf("symndx %d[%s], type %d\n", symndx, symtab[symndx].st_name + strtab, type);
+            if (t_strcmp("syscall", symtab[symndx].st_name + strtab) == 0) {
+                got[symndx + 1] = (size_t)syscall;
+                continue;
+            }
+            if (t_strcmp("strcmp", symtab[symndx].st_name + strtab) == 0) {
+                got[symndx + 1] = (size_t)t_strcmp;
+                continue;
+            }
+        }
         size_t addend = step == 3 ? rel[2] : *reloc_addr;
         switch (type) {
         case R_(PC32):

@@ -6,3 +6,4 @@
 #define Elf_Addr Elf32_Addr
 #define Elf_Sym Elf32_Sym
 #define Elf_auxv_t Elf32_auxv_t
+#define Elf_Dyn Elf32_Dyn
