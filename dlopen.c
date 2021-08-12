@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/auxv.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -10,6 +11,7 @@
 #include "tinyld.h"
 
 static size_t page_size = -1;
+struct Elf_handle_t *self = NULL;
 
 static int t_read_ehdr(struct Elf_handle_t *handle) {
     return t_pread(handle->fd, &handle->header, sizeof(Elf_Ehdr), 0) != sizeof(Elf_Ehdr);
@@ -159,16 +161,16 @@ static void t_do_relocate(struct Elf_handle_t *handle, size_t *rel, size_t rel_s
         size_t *reloc_addr = handle->mapping_info->base + rel[0];
         int symndx = ELF_R_SYM(rel[1]);
         if (symndx != 0) { // symbol relocation
-            // printf("symndx %d[%s], type %d\n", symndx, symtab[symndx].st_name + strtab, type);
-            if (t_strcmp("syscall", symtab[symndx].st_name + strtab) == 0) {
-                got[symndx + 1] = (size_t)syscall;
-                continue;
-            }
-            if (t_strcmp("strcmp", symtab[symndx].st_name + strtab) == 0) {
-                got[symndx + 1] = (size_t)t_strcmp;
+            switch (type) {
+            case R_(JUMP_SLOT):
+                if (t_strcmp(symtab[symndx].st_name + strtab, "syscall") == 0)
+                    *reloc_addr = (size_t)syscall;
+                else
+                    *reloc_addr += (size_t)base;
                 continue;
             }
         }
+
         size_t addend = step == 3 ? rel[2] : *reloc_addr;
         switch (type) {
         case R_(PC32):
@@ -201,6 +203,9 @@ static int t_relocate_handle(struct Elf_handle_t *handle) {
     t_do_relocate(handle, handle->mapping_info->base + dynv_vec[DT_JMPREL], dynv_vec[DT_PLTRELSZ], 2 + (dynv_vec[DT_PLTREL] == DT_RELA));
     t_do_relocate(handle, handle->mapping_info->base + dynv_vec[DT_REL], dynv_vec[DT_RELSZ], 2);
     t_do_relocate(handle, handle->mapping_info->base + dynv_vec[DT_RELA], dynv_vec[DT_RELASZ], 3);
+    size_t *got = handle->dl_info->got, *self_got = self->dl_info->got;
+    got[1] = self_got[1];
+    got[2] = self_got[2];
     if (handle->reloc_info->relro_start != handle->reloc_info->relro_end) {
         if (t_mprotect(
                 handle->mapping_info->base + handle->reloc_info->relro_start,
@@ -214,9 +219,62 @@ static int t_relocate_handle(struct Elf_handle_t *handle) {
     return 0;
 }
 
+static int t_parse_auxv() {
+    // 2.6.0-test7
+    int fd = syscall(SYS_open, "/proc/self/auxv", O_RDONLY);
+    size_t auxv[32];
+    syscall(SYS_read, fd, auxv, 32 * sizeof(size_t));
+    size_t nphdr = 0;
+    void *entry;
+    for (int i = 0; i < 32; i += 2) {
+        switch (auxv[i]) {
+        case AT_PHDR:
+            self->phdr = (void *)auxv[i + 1];
+            break;
+        case AT_PHNUM:
+            nphdr = auxv[i + 1];
+            break;
+        }
+    }
+
+    for (size_t i = 0; i < nphdr; i++) {
+        if (self->phdr[i].p_type == PT_DYNAMIC) {
+            self->dl_info->vaddr = self->phdr[i].p_vaddr;
+            break;
+        }
+    }
+    if (self->dl_info->vaddr == 0) {
+        // no dynamic segment found
+        syscall(SYS_exit, -1);
+    }
+}
+
+static int t_collect_env() {
+    // t_parse_maps();
+    self = (struct Elf_handle_t *)calloc(1, sizeof(struct Elf_handle_t));
+    self->mapping_info = (struct Elf_mapping_info_t *)calloc(1, sizeof(struct Elf_mapping_info_t));
+    self->dl_info = (struct Elf_dynamic_info_t *)calloc(1, sizeof(struct Elf_dynamic_info_t));
+    int ret = t_parse_auxv();
+    for (size_t mem = ((size_t)self->phdr & (-page_size)), i = 0;
+         i < 5; mem -= page_size, i++) {
+
+        if (t_memcmp((void *)mem, ELFMAG, 4) == 0) {
+            self->mapping_info->base = (void *)mem;
+            break;
+        }
+    }
+    size_t *dynv = self->mapping_info->base + self->dl_info->vaddr;
+    for (size_t i = 0; i < 32; i += 2)
+        if (dynv[i] == DT_PLTGOT)
+            self->dl_info->got = (void *)dynv[i + 1];
+    return ret;
+}
+
 static void *t_fdlopen(int fd, int flags) {
     if (page_size == -1)
         page_size = getpagesize();
+    if (self == NULL)
+        t_collect_env();
     if (fd < 0)
         return NULL;
     struct Elf_handle_t *handle = (struct Elf_handle_t *)calloc(1, sizeof(struct Elf_handle_t));

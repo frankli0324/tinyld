@@ -7,7 +7,7 @@ SRC = dlopen.c dlsym.c dlclose.c $(wildcard syscalls/*.c) $(wildcard libc/*.c)
 HEADER = tinyld.h internals.h syscalls.h libc.h
 OBJS = $(SRC:.c=.o)
 LDFLAGS =
-CFLAGS = -Wall -fPIC -nostdlib
+CFLAGS = -Wall -fPIC
 # CFLAGS += -pipe -Wall -Wextra -fPIC -fno-ident -fno-stack-protector -U _FORTIFY_SOURCE
 # CFLAGS += -DSTDLIB=$(STDLIB)
 CFLAGS_i386 = -m32

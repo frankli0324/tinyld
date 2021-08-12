@@ -29,3 +29,16 @@ int t_strcmp(const char *s1, const char *s2) {
     }
     return *s1 - *s2;
 }
+
+int t_strncmp(const char *s1, const char *s2, size_t n) {
+    while (n--) {
+        if (*s1 - *s2 != 0)
+            return *s1 - *s2;
+        s1++, s2++;
+    }
+    return 0;
+}
+
+int t_memcmp(const void *s1, const void *s2, size_t n) {
+    return t_strncmp(s1, s2, n);
+}
