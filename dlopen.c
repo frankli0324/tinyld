@@ -204,7 +204,13 @@ static int t_relocate_handle(struct Elf_handle_t *handle) {
     t_do_relocate(handle, handle->mapping_info->base + dynv_vec[DT_REL], dynv_vec[DT_RELSZ], 2);
     t_do_relocate(handle, handle->mapping_info->base + dynv_vec[DT_RELA], dynv_vec[DT_RELASZ], 3);
     size_t *got = handle->dl_info->got, *self_got = self->dl_info->got;
-    got[1] = self_got[1];
+    struct link_map *child = (struct link_map *)calloc(1, sizeof(struct link_map));
+    struct link_map *parent = (struct link_map *)self_got[1];
+    child->l_addr = (Elf_Addr)handle->mapping_info->base;
+    child->l_ld = (Elf_Dyn *)dynv;
+    child->l_next = parent->l_next;
+
+    got[1] = (size_t)child;
     got[2] = self_got[2];
     if (handle->reloc_info->relro_start != handle->reloc_info->relro_end) {
         if (t_mprotect(

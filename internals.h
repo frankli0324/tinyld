@@ -57,4 +57,11 @@ struct Elf_handle_t {
     struct Elf_reloc_info_t *reloc_info;
 };
 
+struct link_map {
+    Elf_Addr l_addr;
+    char *l_name;
+    Elf_Dyn *l_ld;
+    struct link_map *l_next, *l_prev;
+};
+
 #endif // TYPES_H
