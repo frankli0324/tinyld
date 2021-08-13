@@ -210,6 +210,35 @@ static int t_relocate_handle(struct Elf_handle_t *handle) {
     child->l_ld = (Elf_Dyn *)dynv;
     child->l_next = parent->l_next;
 
+    // since lm is a doubly linked list, maybe we'd better duplicate the entire chain
+    // for (struct link_map *i = parent->l_next, *j = child; i != NULL; i = i->l_next, j = j->l_next) {
+    //     j->l_next = (struct link_map *)calloc(1, sizeof(struct link_map));
+    //     t_memcpy(j->l_next, i, sizeof(struct link_map));
+    //     j->l_next->l_prev = j;
+    // }
+
+    /*
+    so eventually this is proven to be nearly impossible:
+
+    in glibc, `struct link_map` has a definition of:
+
+    struct link_map {
+        Elf_Addr l_addr;
+        char *l_name;
+        Elf_Dyn *l_ld;
+        struct link_map *l_next, *l_prev;
+        /* All following members are internal to the dynamic linker.
+            They may change without notice. 
+        ...
+        ElfW(Dyn) *l_info[DT_NUM + DT_THISPROCNUM + DT_VERSIONTAGNUM + DT_EXTRANUM + DT_VALNUM + DT_ADDRNUM];
+    }
+
+    which means that the `link_map` structure as a variable size, so it's extremely hard to fake a node.
+    needless to say, if we fake one, it may (almost certainly) fail on other versions/implementations.
+
+    We can only resolve the symbols on ourselves now.
+    */
+
     got[1] = (size_t)child;
     got[2] = self_got[2];
     if (handle->reloc_info->relro_start != handle->reloc_info->relro_end) {
