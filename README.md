@@ -36,6 +36,12 @@ try it out!
 make test
 ```
 
+## status
+
+test1(pure asm) and test2(syscall) passed, test3(use libc functions) fails
+
+see dlopen.c#L221-L239
+
 ## the idea
 
 https://github.com/m1m1x/memdlopen replaces the functions used for `dlopen`ing, but addresses are fixed for specific ld versions. the code is not reusable. also, it relies on system ld to work.  
