@@ -7,6 +7,8 @@
 #include "../libc.h"
 #include "../syscalls.h"
 
+extern struct bd_t *blob_fds[64];
+
 void *t_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
     const size_t page_size = getpagesize();
     if (fd < 64 || blob_fds[fd - BD_BASE] == NULL) {
@@ -41,8 +43,9 @@ void *t_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offse
     }
     return ret;
 }
-
+#include <stdio.h>
 int t_munmap(void *addr, size_t length) {
+    printf("%p\n", addr);
     return syscall(SYS_munmap, addr, length);
 }
 

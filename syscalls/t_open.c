@@ -3,6 +3,8 @@
 
 #include "../syscalls.h"
 
+extern struct bd_t *blob_fds[64];
+
 int t_blob_open(const void *blob, int len) {
     struct bd_t *bd = (struct bd_t *)malloc(sizeof(struct bd_t));
     bd->data = blob;
@@ -18,7 +20,7 @@ int t_blob_open(const void *blob, int len) {
 }
 
 int t_close(int fd) {
-    if (fd < 64 || blob_fds[fd - BD_BASE] == NULL)
+    if (fd < BD_BASE || blob_fds[fd - BD_BASE] == NULL)
         return syscall(SYS_close, fd);
     struct bd_t *bd = blob_fds[fd - BD_BASE];
     free((void *)bd->data);

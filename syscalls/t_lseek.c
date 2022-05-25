@@ -2,6 +2,8 @@
 
 #include "../syscalls.h"
 
+extern struct bd_t *blob_fds[64];
+
 off_t t_lseek(int fd, off_t offset, int whence) {
     if (fd < 64 || blob_fds[fd - BD_BASE] == NULL)
         return syscall(SYS_lseek, fd, offset, whence);

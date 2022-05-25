@@ -10,11 +10,11 @@
 #define hidden __attribute__((visibility("hidden")))
 
 #define BD_BASE 64
-struct bd_t { // blob descriptor
+const struct bd_t { // blob descriptor
     const void *data;
     size_t len;
     void *ptr;
-} * blob_fds[64] __attribute__((visibility("default")));
+};
 
 long hidden syscall(long n, ...);
 off_t hidden t_lseek(int fd, off_t offset, int whence);

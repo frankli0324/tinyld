@@ -3,6 +3,8 @@
 
 #include "../syscalls.h"
 
+extern struct bd_t *blob_fds[64];
+
 ssize_t t_read(int fd, void *buf, size_t count) {
     if (fd < 64 || blob_fds[fd - BD_BASE] == NULL)
         return syscall(SYS_read, fd, buf, count);
