@@ -10,3 +10,5 @@ main.run.xml
 *.blg
 *.bbl
 *.toc
+*.fdb_latexmk
+*.fls
