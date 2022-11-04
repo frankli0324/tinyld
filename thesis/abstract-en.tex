@@ -1,0 +1,20 @@
+"Post exploitation" refers to the stage where an attacker has gained access to a vulnerable machine, and seeks to maintain
+his privileges for further utilization. For anti-malware softwares, the primary objective is to prevent malwares from being
+executed, so attackers could be stopped from maintaining access. In recent years, the detection techniques against malwares on the Windows platform have matured.
+Linux, on the other hand, due to its open-source and non-commercial property, the research of malware detection for the
+platform is developing much slower. However, Linux is the most widely used platform for servers and data centers, so the
+study on post exploitation is not only important, but also urgent.
+
+This thesis presents an effective way of hiding malwares from anti-malware softwares after researching into the common
+malware detection techniques used on Linux platforms. Most malwares in the wild works by executing a seperate file
+containing the actual attack payload in order to maintain control of the vulnerable machine, yet Linux provides only a
+small set of syscalls for processes to achieve that. As a result, anti-malware softwares could easily detect them by closely
+monitoring the activities of the syscalls like open and execve. This thesis, however, designed a malware that loads
+the ELF which contains the actual payload into it's own virtual memory space, and prevented calling the sensitive syscalls
+by imitating their behaviors. This made it harder for anti-malware softwares to detect such malwares.
+
+The method presented in this thesis helped a malware demo to achieve bypassing the detection conducted by over sixty
+malware detection engines including Kaspersky, McAfee and Tencent, while it successfully loads and executes the payload
+sent to it. Finally, this thesis conducted an analysis on the method, and presented some ideas on how a similar threat could be
+mitigated or eliminated. This thesis also concluded some of the obstacles researchers may encounter while strengthening
+Linux security.

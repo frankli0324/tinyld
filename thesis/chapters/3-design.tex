@@ -1,0 +1,258 @@
+\chapter{恶意程序隐蔽方式的思考与设计}
+
+\section{恶意程序隐蔽方式设计思路}
+
+恶意程序并不一定需要直接携带有效攻击载荷，其可以实现自定义的装载器以伪装为正常程序，先通过前期权限获取阶段进入目标系统，再通过装载真
+正的恶意代码达成目标。通常来说检测程序会在攻击载荷真正执行的阶段，而非装载阶段进行防御，因为恶意行为的特征相比静态代码的特征更为明显。
+
+攻击载荷被装载后在内存中一般也会留下比较明显的特征。如果对某一样本进行针对性的识别，可以先扫描内存中的恶意代码特征，但保护程序扫描所有进程的虚拟内存空间的
+成本过高。一般来说，这样的分析手段多用于研究已知的恶意样本。
+
+传统的防护软件主要依托特征库对恶意程序进行识别与查杀，其缺点在前文的论述中是显而易见的。现代的防护软件除了针
+对程序的静态特征进行启发式识别外，还以动态的恶意行为作为识别依据。这虽然使得查杀的准确率与效率得到了大幅提升，但也导致了绕过检测的可能：若攻击者
+长期隐蔽于环境中而不装载恶意代码，风险就会一直存在。
+
+本设计基于这样的前提：程序装载过程会与操作系统进行交互，即调用系统调用。但进行内存分配的行为存在一定的特征，使得保护程序可以从一系列的系统调用行为中筛选出
+异常的装载行为：即绕过操作系统提供的标准流程来“自行”装载的行为。
+
+比如，保护程序可以采用内核模块对敏感系统调用进行劫持，从而监控其调用情况。代码清单\ref{LST-monitor-open}描述了保护程序通过内核模块劫持open
+系统调用来对所有用户态程序打开的文件进行检查的过程。
+
+\begin{listing}
+\caption{利用内核模块监控open的调用情况}
+\label{LST-monitor-open}
+\begin{minted}[encoding=utf8,linenos,frame=single, breaklines]{c}
+asmlinkage int (*call_open) (const char* __user, int, int);
+asmlinkage int hooked_open(const char* __user filename, int flags, int mode) {
+    scan_logic(filename);
+    return call_open(filename, flags, mode);
+}
+    
+static int __init hook_init(void) {
+    make_rw((unsigned long)sys_call_table);
+    call_open = (void*)*(sys_call_table + __NR_open);
+    *(sys_call_table + __NR_open) = (unsigned long)hooked_open;
+    getuid_call = (void*)*(sys_call_table + __NR_getuid);
+    make_ro((unsigned long)sys_call_table);
+    return 0;
+}
+\end{minted}
+\end{listing}
+
+之所以选择在Linux操作系统环境下进行研究，是因为Windows上已经有很多公开的装载器实现，如
+MemoryModule\cite{MemModule}，而且由于Windows系统调用多而复杂，存在许多装载可执行文件的方法，不便于构建清晰的分析方法。相比之下，
+Linux系统开源的本质便于对程序调用系统调用的行为进行统计分析，这使得我们有机会对恶意程序及保护程序可能的对抗面进行探索，
+以期对防御手段乃至操作系统本身进行迭代与防御，达成更高的系统安全性。 
+
+故本文先以设计一个简单的恶意程序为切入点，并尝试分析其行为的特征，并提出可能的防御思路，进行实践。该恶意程序应该满足以下几点为目标：
+
+\begin{enumerate}
+    \item 不依赖目标系统内的其它动态链接库
+    \item 不创建任何子进程
+    \item 尽量减少与操作系统的交互
+\end{enumerate}
+
+下面将依次介绍设立这几点目标的原因。
+
+\section{恶意程序的感染流程}
+
+本文的关注点并不在于攻击载荷，即Stager的构造，而主要关注Dropper如何有效且隐蔽地加载Stager。
+
+对于Linux操作系统，被运行的程序必须作为一个可访问的“文件”存在于文件系统中，\tkey{execve}系统调用只能接收文件路径作为其参数。这个文件可以存储
+于磁盘中，也可以存储于内存中（如tmpfs，memfd等），但无论如何，只有拥有路径的程序能正常被\tkey{execve}调用正常装载运行。这使得保
+护程序能很轻易地检测与控制操作系统所运行的软件，防止恶意程序被执行。即便不使用保护软件，Linux用户也可以通过禁止低权限用户向文件系统中写入任何可
+执行文件来保护系统的安全。本文中设计的Dropper便是针对这一点进行突破。
+
+恶意程序常常将Stager编译为一段shellcode，即一段可以直接运行的汇编指令。比如通过代码清单\ref{LST-exec-shellcode}所示的代码，
+我们可以在Linux操作系统中运行一段shellcode。
+
+\begin{listing}
+\caption{shellcode执行示意}
+\label{LST-exec-shellcode}
+\begin{minted}[encoding=utf8,linenos,frame=single]{c}
+char shellcode[] = "指令";
+
+int main() {
+    int (*f)();
+    f = (int (*)())shellcode;
+    (int)(*f)();
+}
+\end{minted}
+\end{listing}
+
+这样做的优点显而易见：恶意程序在运行shellcode的过程中没有创建任何新的进程，并且也可以做到最小化攻击载荷。但其缺点也很明显：大多数现代的攻击
+工具都利用了高级程序语言进行编程，而其输出文件大多为通用的可执行文件。可执行文件经过链接，其结构往往比较复杂，不能直接作为shellcode运行。
+shellcode往往也需要精心构造，无法快速大规模地构建成Stager以进行攻击。
+
+当下的恶意程序框架往往自行实现了一套Stager文件格式，并编写了相应的开发工具，以期Dropper能较为方便地装载Stager，同时不失去快速开发Stager
+的能力。但同样由于Stager文件格式的特征过于明显，系统保护程序能轻易地通过相应的Stager文件格式针对成套的Stager进行查杀。
+
+ELF文件格式作为Linux操作系统主要的可执行文件格式，自然在Linux源码中有详细说明，所以我们可以从Linux文档中找到对ELF文件格式的说明。这
+意味着我们可以方便地参照相关源码设计这样的逻辑：在正在运行的进程的虚拟内存空间中装载
+另一个ELF文件，并且不创建任何新的进程。这样一来就能够相对隐蔽地加载与运行更多Stager了。
+
+所以，为保证Stager在装载过程中不创建新的进程的同时防止系统保护工具对Stager进行针对性识别，并且保证Stager的快速开发能力，需要我们实
+现的Dropper能够正确装载ELF文件。下文中将简称该装载器为"tinyld"，意为tiny loader。
+
+\section{Tinyld恶意程序加载器的设计与实现}
+
+Linux操作系统下，程序对文件的操作都通过\tkey{open}，\tkey{read}，\tkey{write}，\tkey{close}等系统调用进行。这些系统调用通过
+\tterm{文件描述符}（即file descriptor，下文简称fd）来跟踪一个文件在文件记录表中的位置，而文件记录表是操作系统管理文件的数据结构。
+
+为了正确实现ELF文件的装载器，我们需要对已有的装载器的实现进行参考。已有的装载器由于完全面对文件流进行操作，而所有的操作都围绕“文件流”展开。也就
+是说，如果我们将针对文件的操作重新映射到一片内存上，我们就可以很大程度上参考与复现装载器原有的逻辑，减小工作量，而不需要重新从头设计针对一段可以
+随机访问的内存中存储的ELF文件结构的装载器了。
+
+仿照文件描述符的设计理念，我们也可以创造一组用于追踪一段内存的全局描述符，并且也使用整数类型对它们进行索引。此处我们将一段内存单位称为blob，将
+索引称为\tterm{blob descriptor}，简称bd。如此一来，我们可以通过在进程自身的内存模拟这些系统调用的行为来阻止真正fd的产生，从而规避检测。fd为
+一个非负整数，我们可以划分出一段虚拟的fd用于装载器的实现。比如我们可以像代码清单\ref{LST-mimic-open}这样实现\tkey{open}系统调用。
+
+\begin{listing}
+\caption{在blob上模拟open系统调用}
+\label{LST-mimic-open}
+\begin{minted}[encoding=utf8,linenos,frame=single]{c}
+#define BD_BASE 64
+struct bd_t { // blob descriptor
+    const void *data;
+    size_t len;
+    void *ptr;
+} * blob_fds[64] \
+__attribute__((visibility("default")));
+int t_blob_open(const void *blob, int len) {
+    bd_t *bd = (bd_t *)malloc(sizeof(struct bd_t));
+    bd->data = blob;
+    bd->len = len;
+    bd->ptr = (void *)bd->data;
+    for (int i = 0; i < 64; i++) {
+        if (blob_fds[i] != NULL)
+            continue;
+        blob_fds[i] = bd;
+        return i + BD_BASE;
+    }
+    return -1;
+}
+\end{minted}
+\end{listing}
+
+代码清单\ref{LST-mimic-open}中，我们通过将区间为64-128的fd映射到了一个\tkey{void}指针，模拟了\tkey{open}系统调用的行为。
+同理，我们可以实现对blob的流式读写与跳转。其中，结构体\tkey{bt\_t}中的\tkey{ptr}指针用于追踪数据流当前的位置。可以看到，
+Linux内核在用于追踪文件的结构体\tkey{struct file}中\cite{StructFilePos}使用了\tkey{f\_pos}成员变量来追踪相应fd
+读取文件流的当前位置。
+
+对于文件，Linux操作系统提供了\tkey{lseek}系统调用改变\tkey{f\_pos}的值，以达到跳转到文件不同位置进行读写的目的。ELF文件结构的解析过程中涉
+及到大量跳转，以读取文件不同位置的结构信息，所以我们也需要对blob实现这一基本的流操作，如代码清单\ref{LST-mimic-lseek}所示。
+
+\begin{listing}
+\caption{在blob上模拟lseek系统调用}
+\label{LST-mimic-lseek}
+\begin{minted}[encoding=utf8,linenos,frame=single]{c}
+off_t t_lseek(int fd, off_t offset, int whence) {
+    if (fd < BD_BASE || blob_fds[fd - BD_BASE] == NULL)
+        return syscall(SYS_lseek, fd, offset, whence);
+    struct bd_t *bd = blob_fds[fd - BD_BASE];
+    if (whence == SEEK_SET) {
+        if (bd->len > offset)
+            bd->ptr = (void *)bd->data + offset;
+        else
+            return -1;
+    }
+    return bd->ptr - bd->data;
+}
+\end{minted}
+\end{listing}
+
+可以看到，我们可以通过检查并修改代表当前读取位置的\tkey{ptr}指针，对索引为64以上的fd映射到的blob实现\tkey{lseek}功能。同时，我们还透明地将
+对没有映射到blob的fd的\tkey{lseek}调用回落至常规的系统调用，防止出现额外的故障。
+
+接下来我们需要正式解析并装载ELF文件结构。由于经过上文的处理，tinyld已经将一段可供随机访问的数据进行了包装，我们可以用与Linux文件API相似的流处
+理模式对其进行处理。所以，tinyld可以高度参考各\tterm{glibc}实现的ELF装载流程。
+
+结合上文对ELF文件的介绍，我们知道ELF文件头部按顺序存储了在Linux头文件\tkey{elf.h}中定义的\tkey{Elf64\_Ehdr}结构体，也就是说，可以直接以流的形式读入这一结构体。如代码清单\ref{LST-pread-elfheader}所示。
+
+\begin{listing}
+\caption{以流的形式读取ELF文件头}
+\label{LST-pread-elfheader}
+\begin{minted}[encoding=utf8,linenos,frame=single]{c}
+static int t_read_ehdr(struct Elf_handle_t *handle) {
+    return t_pread(
+        handle->fd, &handle->header,
+        sizeof(Elf_Ehdr), 0
+    ) != sizeof(Elf_Ehdr);
+}
+\end{minted}
+\end{listing}
+
+接下来就可以根据ELF文件头中指示的段表偏移，读取存储段相关信息的段表。我们可以根据ELF头信息得到ELF文件中存储的段个数，根据段头信息得到段偏移，从
+而依次将ELF文件中\tkey{LOAD}类型的段映射到虚拟内存中。由于ELF文件定义并没有规定段的顺序，我们必须依次遍历所有的段，根据其类型进行相应的操作。
+
+为了使代码逻辑更加清晰，tinyld选择在正式将段映射至虚拟内存中前先读取所有段的相关信息，存储于结构体中，并统一对所有的\tkey{LOAD}段进行映射。
+代码清单\ref{LST-premap-programs}展示了读取枚举并读取\tkey{LOAD}段信息的逻辑。
+
+\begin{listing}
+\caption{在将段映射至内存前获取其地址信息}
+\label{LST-premap-programs}
+\begin{minted}[encoding=utf8,linenos,frame=single,breaklines]{c}
+// struct Elf_handle_t *handle;
+for (int i = 0; i < handle->header.e_phnum; i++, phdr++) {
+    switch (phdr->p_type) { // 检查段类型
+    case PT_LOAD:
+        cnt_seg_load++;
+        if (phdr->p_vaddr < handle->mapping_info->addr_min) {
+            handle->mapping_info->addr_min = phdr->p_vaddr;
+            handle->mapping_info->off_start = phdr->p_offset;
+        }
+        if (phdr->p_vaddr + phdr->p_memsz > handle->mapping_info->addr_max) {
+            handle->mapping_info->addr_max = phdr->p_vaddr + phdr->p_memsz;
+        }
+        break;
+    case ...: // 略
+    }
+}
+\end{minted}
+\end{listing}
+
+tinyld选择了动态链接库类型的ELF文件作为装载的对象，这样方便我们对tinyld进行测试于开发。所以在遍历段头的过程中我们也需要找到类型为
+\tkey{DYNAMIC}的段。这个类型的段中存储了共享链接库中符号表的位置，我们需要从符号表中找到攻击载荷逻辑的入口点。需要说明的是，tinyld
+虽然使用了固定的名称作为载荷入口，但是在更完善的实现中Dropper可以选择随机的符号作为载荷入口，甚至可以选择装载其它类型的ELF文件，所以
+tinyld选择的载荷入口点名称的特征字符串并不适合用于查杀tinyld。为了定位符号表，我们需要在在上述的遍历逻辑中加入判断，如代码清单
+\ref{LST-find-load}所示：
+
+\begin{listing}
+\caption{定位ELF文件中的符号表}
+\label{LST-find-load}
+\begin{minted}[encoding=utf8,linenos,frame=single,breaklines]{c}
+switch (phdr->p_type) {
+    case PT_LOAD:
+        ... // 略
+    case PT_DYNAMIC:
+        handle->dl_info->vaddr = phdr->p_vaddr;
+        break;
+    case ...: // 略
+}
+\end{minted}
+\end{listing}
+
+在之后我们就可以利用\tkey{handle}中取得的信息对内存进行映射，如代码清单\ref{LST-map-programs}。此处有一点需要注意：
+通过背景知识的调查与研究，我们可以了解到实现动态链接器的工作量几乎不可接受，所以无法直接利用libc中实现的对系统调用的包装函数，
+故tinyld需要在装载Stager时修改程序的\tterm{全局偏移表}（Global Offset Table），将Stager所需的libc函数的地址修改为实
+际地址，供Stager调用。
+
+\begin{listing}
+\caption{映射ELF中的所有LOAD段}
+\label{LST-map-programs}
+\begin{minted}[encoding=utf8,linenos,frame=single,breaklines]{c}
+...; // 计算地址偏移，略
+handle->mapping_info->base = base - addr_min;
+Elf_Phdr *phdr = handle->phdr;
+for (int i = 0; i < handle->header.e_phnum; i++, phdr++) {
+    if (phdr->p_type != PT_LOAD)
+        continue;
+    ...; // 处理权限、计算偏移，略
+    if (t_mmap(base + addr_low, addr_high - addr_low,
+               prot, MAP_PRIVATE | MAP_FIXED,
+               handle->fd, off_start) == MAP_FAILED) {
+        return -1;
+    }
+}
+\end{minted}
+\end{listing}

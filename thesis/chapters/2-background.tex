@@ -1,0 +1,295 @@
+\chapter{围绕恶意程序的隐蔽与反隐蔽技术的相关理论基础}
+
+本章节介绍了本文研究所需的相关知识。
+
+\ref{SEC-PENTEST-STD}中简要介绍了的渗透的不同阶段，以及渗透过程中常用的概念与术语。其中描述了渗透工作中渗透人员的基本工作流程，并简要
+介绍了渗透人员常用到的指令下发与控制框架的常见结构。
+
+\ref{SEC-ELF}介绍了Linux下可执行文件（即ELF文件）的相关知识。此小节分别介绍了这种可执行文件的结构、及装载过程及相关的动态链接的机制。
+
+\section{渗透测试技术与理论}
+\label{SEC-PENTEST-STD}
+
+\subsection{渗透测试技术流程}
+
+在渗透测试中，渗透人员首先需要对目标资产进行测绘，并从中找出有较高利用价值的目标系统进行攻击。一般来说，目标系统中的漏洞会给予攻击者一定的权限，
+使得攻击者可以在目标系统中进行进一步的信息搜集，以提升自己所获得的权限。但是，目标系统中往往运行了一类保护程序，这类程序在目标系统在被攻破的情况下会尽
+最大可能保护目标系统，阻止攻击者扩大攻击成果。
+
+在复杂的攻击行动中，攻击者往往会分多阶段对目标系统发起攻击。为建立起程序化攻击流程，攻击者往往会运用多种不同的渗透工具对目标系统发起攻击。
+在同一渗透任务中，这些渗透工具往往会被统一的指令框架所整合，这一类框架被称为\tterm{Command and Control}（指令下发与控制框架），
+以下简称\tterm{C2}。
+
+系统的渗透测试流程中，攻击方需要维持所获得的权限。通常来说，攻击方会在目标系统中运行一个隐蔽的恶意程序，用于接受
+并执行远程攻击者下发的指令。为保证通用性，这样的恶意程序往往被设计为程序的装载器。为保证装载行为的隐蔽性，恶意程序往往不会选择调用
+操作系统提供的装载方法对恶意代码进行装载，而会选择自行实现程序装载逻辑。这样不仅有可能规避保护程序对“装载”这一行为的检测，还可能在
+一定程度上规避对代码装载之后的一系列行为的检测。
+
+\subsection{指令下发与控制框架}
+
+复杂的攻击行动中，攻击者往往会分多阶段对目标系统发起攻击。为方便攻击者整理与长期控制攻击目标，攻击者会预先编写或使用已有的C2框架。
+这样的框架通常由下面几个部分组成：
+
+\begin{enumerate}
+    \item 控制端：用于规划与下发攻击载荷；
+    \item Dropper：运行于目标系统中，用于获取并启动Stager，收集运行环境信息；
+    \item Stager：可以执行有效攻击载荷的程序，用于执行控制端下发的攻击指令。
+\end{enumerate}
+
+在渗透过程中，攻击者往往不会选择直接与目标主机直接建立网络连接，而是利用临时的攻击跳板发起攻击，如图\ref{FIG-pentest-relation}所示。
+这样做的原因有很多。其中最主要的原因是为了利用临时主机发起攻击，这样可以很好地隐藏攻击者的身份信息，从而防止被溯源与反向渗透。其次，互联网上
+大部分的攻击目标因网络结构的复杂性无法被直接访问，利用位于公网的服务器可以在攻击者与目标主机间建立起相对稳定的通信信道，扩大了攻击者
+攻击能力与范围。C2的控制端往往便搭建在这样一台跳板主机之上。Joseph等人\cite{C2Review}于2014年分析了多个C2样本，并进行了多个角度的
+归类与总结，对C2的实现进行了综述性的概括。
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{images/pentest-relation.png}
+    \caption{攻击者攻击目标系统示意图}
+    \label{FIG-pentest-relation}
+\end{figure}
+
+在攻击者取得一定运行权限后，攻击者往往需要执行Dropper程序。这些Dropper程序会通过特定的信道与控制端建立联系，并下载和执行真正的攻击载荷。
+典型的控制端运行于位于公网的服务器上，由Dropper通过HTTPS或其它协议进行轮询，以取得执行攻击载荷的恶意程序Stager。
+
+近些年出现了多种通过非典型的网络信道进行通信的Dropper设计。例如，Radunovic等人于2020年展示了已经在互联网上存在多年的利用如twitter这样的
+社交媒体进行通信的控制手段\cite{SocmediaCC}。在一些非典型的控制网络中，去中心化的控制模式也逐步得到应用，这使得了控制网络的健壮性得到了提高，
+并在一定程度上加大了溯源工作的难度。如图\ref{FIG-distributed}所示。在这样的网络中，任何一个受害者都有可能向其它受害者传递、下发指令与攻击载荷。
+也就是说，控制端并不一定是一个具象的概念，防御者从传统的控制端入手，对恶意控制端进行屏蔽已经逐渐变得不现实，不能从根源解决问题。
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\textwidth]{images/distributed.png}
+    \caption{一个去中心化的受害者网络示意图}
+    \label{FIG-distributed}
+\end{figure}
+
+由于Dropper和Stager在渗透过程中的重要性，本文将主要关注运行于目标系统中的Dropper与Stager部分。
+
+Dropper与Stager是一对抽象的概念，用于描述恶意程序感染目标系统的不同阶段。在Dropper执行阶段，被感染的目标程序并没有执行真正的恶意代码，
+Dropper仅仅负责从不同的途径获取攻击者下发的攻击载荷并执行，这些Dropper获取到的攻击载荷则被称为Stager。Dropper与Stager往往需要协同工作，
+以确保攻击者能长时间维持对目标系统的控制权限，而保护程序则需要尽早发现二者，将其清除。
+
+Dropper因其隐蔽的特征，往往是保护程序研究者关注的重点目标；而Stager的攻击行为相对明显，容易被保护程序识别与销毁，所以对于渗透研究人
+员则需要研究保护程序的查杀思路，使得在实现Dropper装载Stager功能的同时保障Stager的正常运行。所以攻守双方的研究焦点紧紧围绕Dropper部分展开。
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.8\textwidth]{images/ds-relation.png}
+    \caption{Dropper与Stager的关系示意图}
+    \label{FIG-ds-relation}
+\end{figure}
+
+\section{ELF文件}
+\label{SEC-ELF}
+
+\subsection{ELF文件结构}
+\label{SEC-ELF-Structure}
+
+\tterm{ELF}(Executable and Linkable Format)是Linux所使用的可执行文件格式，本文所涉及到的两种ELF文件分别为\tterm{可执行文件}
+(Executable File)和\tterm{共享目标文件}(Shared Object File)。可执行文件包含了可以直接被加载进内存执行的程序，而共享目标文件包含
+了用于被其他ELF文件引用的数据或代码。本节只简单介绍32位系统下的ELF文件，其与64位系统下的ELF文件并无本质区别。
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\textwidth]{images/Elf-layout.png}
+    \caption{ELF结构简要示意图}
+    \label{FIG-ELF-layout}
+\end{figure}
+
+如图\ref{FIG-ELF-layout}所示，ELF文件由\tterm{ELF头}(ELF Header)、\tterm{程序头表}(Program Header Table)、
+\tterm{节头表}(Section Header Table)和多个\tterm{节}(Sections)构成（如图\ref{FIG-ELF-layout}中的.text节、.rodata节和.data节
+等）。ELF头和程序头表主要描述程序的存储特征和运行时的特征，节头表主要描述各个节的特征，而节则保存具体的代码或数据。
+
+\subsubsection{ELF头}
+
+ELF头记录了ELF文件的基本信息以及ELF文件其他部分的位置和大小，其数据结构是一个\tkey{elf32\_hdr}结构体，其定义如代码清单
+\ref{LST-elf32-ehdr}所示。
+
+\begin{listing}
+\caption{Elf32\_Ehdr结构体}
+\label{LST-elf32-ehdr}
+\begin{minted}[encoding=utf8,linenos,frame=single, breaklines]{c}
+typedef struct elf32_hdr{
+    unsigned char e_ident[EI_NIDENT];
+    Elf32_Half e_type;
+    Elf32_Half e_machine;
+    Elf32_Word e_version;
+    Elf32_Addr e_entry; 
+    Elf32_Off e_phoff;
+    Elf32_Off e_shoff;
+    Elf32_Word e_flags;
+    Elf32_Half e_ehsize;
+    Elf32_Half e_phentsize;
+    Elf32_Half e_phnum;
+    Elf32_Half e_shentsize;
+    Elf32_Half e_shnum;
+    Elf32_Half e_shstrndx;
+} Elf32_Ehdr;
+\end{minted}
+\end{listing}
+
+该结构体中比较重要的成员有：
+\begin{itemize}
+    \item \tkey{e\_ident}: 记录\tkey{ELF Magic}，表示这是一个ELF文件。
+    \item \tkey{e\_machine}: 记录可执行程序的位数。
+    \item \tkey{e\_entry}: 记录程序的入口点。
+    %\item \tkey{e\_phoff}: 程序头(Program Headers)相对于程序头表的距离。
+    \item \tkey{e\_shoff}: 节头的相对于文件起始的偏移。
+    \item \tkey{e\_ehsize}: ELF头的大小，即\tkey{elf32\_hdr}结构体的大小。
+    \item \tkey{e\_shentsize}: 节头表每个表项(entry)的大小。
+    \item \tkey{e\_shnum}: 节头表中有多少表项。
+\end{itemize}
+
+\subsubsection{节头表}
+
+节头表的每个表项记录了每个\tterm{节}(Seciton)的基本信息，比如每个节的类型和在文件中的位置信息，而节则是保存ELF文件各种信息的数据块。
+节头表是一个\tkey{elf32\_shdr}结构体数组，数组的长度记录在ELF头的\tkey{e\_shnum}中，而\tkey{elf32\_shdr}结构体的大小记录在ELF头
+的\tkey{e\_shdr}中。该结构体的定义如代码清单\ref{LST-elf32-shdr}所示。
+
+\begin{listing}
+\caption{Elf32\_Shdr结构体}
+\label{LST-elf32-shdr}
+\begin{minted}[encoding=utf8,linenos,frame=single, breaklines]{c}
+typedef struct elf32_shdr {
+    Elf32_Word sh_name;
+    Elf32_Word sh_type;
+    Elf32_Word sh_flags;
+    Elf32_Addr sh_addr;
+    Elf32_Off  sh_offset;
+    Elf32_Word sh_size;
+    Elf32_Word sh_link;
+    Elf32_Word sh_info;
+    Elf32_Word sh_addralign;
+    Elf32_Word sh_entsize;
+} Elf32_Shdr;
+\end{minted}
+\end{listing}
+
+该结构体中比较重要的成员有：
+\begin{itemize}
+    \item \tkey{sh\_name}：节的名字。
+    \item \tkey{sh\_type}：节的类型，表示该节保存何种类型的信息。
+    \item \tkey{sh\_flag}：节的标志位，表示该节的读写权限，以及是否加载进内存中。
+    \item \tkey{sh\_addr}：如果这个节可以被加载，则这里保存节被加载进内存的虚拟地址，否则为0。
+    \item \tkey{sh\_offset}：如果这个节存在于文件中，则表示这个节在文件中的偏移。
+\end{itemize}
+
+依据节保存的信息，其大概可被分为四类：
+\begin{itemize}
+    \item 保存代码的节，典型的有保存源代码编译后的汇编代码的\tkey{.text}节和程序初始化相关的\tkey{.init}节。
+    \item 保存数据的节，典型的有保存全局变量的\tkey{.bss}节。
+    \item 保存只读数据的节，典型的有保存常量和字符串等数据的\tkey{.data}节。
+    \item 保存其他信息的节，典型的有用于链接的\tkey{.symtab}和其他如调试相关非必要的信息的\tkey{.debug}节。
+\end{itemize}
+
+\subsubsection{程序头表}
+
+程序头表描述如何将ELF文件装载入内存中。ELF文件装载到内存的过程并不是简单地将ELF文件直接复制进内存的过程，其有以下几点考量：
+\begin{itemize}
+    \item 空间考量：ELF中有实际上不存在于文件中的节，比如\tkey{.bss}节，其中保存了初始为0的数据。为了节约空间，ELF文件中实际并没有
+            保存一系列的0，而仅仅在节头表中记录了其大小，所以在程序装载过程中需要给其分配相应的内存空间。
+    \item 安全和效率考量：由于不同的节会有不同的读写执行权限，比如\tkey{.text}节仅有可读和可执行权限，而\tkey{.data}节仅有可读权
+            限。由于系统的分段和分页机制的限制，如果将不同的节分别映射入内存，就需要给相应页面分为不同权限的段以保证安全性。但这样
+            可能会导致浪费空间并且降低内存访问效率，所以可以将有相同权限的节合并映射到内存的同一个权限的段中，以同时保证效率和安全
+            性。
+\end{itemize}
+
+所以ELF将节分类后，将权限和功能相似的节合并为同一个\tterm{段}（Segement），如图\ref{FIG-ELF-layout}。也就是说，实际上加载进内存
+中的数据是段。而程序头表的每个表项就描述了段的信息，它是一个\tkey{elf32\_phdr}结构体数组，数组的长度记录在ELF头的\tkey{e\_phnum}
+中，而\tkey{elf32\_phdr}结构体的大小记录在ELF头的\tkey{e\_phdr}中。该结构体的定义如代码清单\ref{LST-elf32-phdr}所示。
+
+\begin{listing}
+\caption{Elf32\_Phdr结构体}
+\label{LST-elf32-phdr}
+\begin{minted}[encoding=utf8,linenos,frame=single,breaklines]{c}
+typedef struct elf32_phdr{
+    Elf32_Word p_type;
+    Elf32_Off p_offset;
+    Elf32_Addr p_vaddr;
+    Elf32_Addr p_paddr;
+    Elf32_Word p_filesz;
+    Elf32_Word p_memsz;
+    Elf32_Word p_flags;
+    Elf32_Word p_align;
+} Elf32_Phdr;
+\end{minted}
+\end{listing}
+
+该结构体中比较重要的成员有：
+\begin{enumerate}
+    \item \tterm{p\_type}：段的类型，比如\tkey{LOAD}类型表示这个段会被加载进内存中，\tkey{INTERP}类型表示该段类型为解释器，本文
+        将会在\ref{SEC-ELF-Loading}中解释其含义。
+    \item \tterm{p\_offset}：段在文件中的偏移。
+    \item \tterm{p\_filesz}：段在文件中的大小。
+    \item \tterm{p\_memsize}：段在内存中的大小。
+    \item \tterm{p\_flags}：段的权限。
+\end{enumerate}
+
+\subsection{ELF文件装载流程}
+\label{SEC-ELF-Loading}
+% reference: https://www.bodunhu.com/blog/posts/program-loading-and-memory-mapping-in-linux/
+% reference: https://blog.csdn.net/gatieme/article/details/51628257
+% reference: https://0xax.gitbook.io/linux-insides/
+
+一般来说，可执行文件需要加载到内存中才能执行，而Linux内核提供了\tkey{execve}系统调用来装载并运行可执行文件，\tkey{execve}系统调用
+通过传入的文件名、命令行参数和环境变量将ELF格式的可执行文件装载至内存以执行，其具体流程为：
+
+\subsubsection{运行前检查工作}
+
+\tkey{execve}实际调用了\tkey{do\_execveat\_common}函数：\tkey{do\_execveat\_common}会首先做基本的有效性检查：检查文件名、文件
+权限和系统可运行进程数量等。基本的有效性检查完毕后，\tkey{do\_execveat\_common}会创建一个类型为\tkey{struct linux\_binprm}的结
+构体\tkey{bprm}，该结构体用来记录加载可执行文件所需的各种信息。创建\tkey{bprm}的主要步骤为：为\tkey{bprm}分配存储空间、初始化
+\tkey{bprm}的证书（credentials）信息，即\tkey{cred} 成员（用于记录可执行文件安全性相关的上下文信息）。\tkey{bprm}的其它成员将在
+之后逐步初始化。当以上步骤完成后，\tkey{do\_execveat\_common}会调用\tkey{check\_unsafe\_exec}对安全性做最后的检查，然后准备开始
+加载可执行文件。
+
+\subsubsection{运行前准备工作}
+
+当前期检查工作完成后，\tkey{do\_execveat\_common}会继续初始化\tkey{bprm}的其他成员：首先调用\tkey{do\_open\_at}打开可执行文件，
+其成功运行后返回该文件的文件描述符记录到\tkey{bprm}中。然后继续调用\tkey{bprm\_mm\_init}初始化可执行文件将要加载到的内存区域的内
+存描述符，并将之记录到\tkey{bprm}中。再调用\tkey{prepare\_binprm}，填充\tkey{uid}信息，并从读取可执行文件的前128字节到
+\tkey{bprm}的\tkey{buf}成员中，用以在之后确定可执行文件的类型。最后将文件名、命令行参数和环境变量填入到\tkey{bprm}中。
+
+当初始化\tkey{bprm}之后，\tkey{do\_execveat\_common}会间接调用\tkey{search\_binary\_handler}，该函数会根据\tkey{bprm}中关于
+可执行文件的信息确定该可执行文件的类型，并选择合适的处理例程（handler）。实际上，Linux内核不只支持一种可执行文件类型，其对每个支持
+的可执行文件类型都有一个\tkey{struct linux\_binfmt}结构体，其中记录了关于处理对应可执行文件的相关成员。其中最主要的成员是
+\tkey{load\_binary}，该成员是一个函数指针，指向为该类型可执行文件建立执行环境的函数。对于ELF类型的可执行文件，其对应的建立执行环境
+函数为\tkey{load\_elf\_binary}。
+
+所以当\tkey{search\_binary\_handler}找到合适的处理例程后，最终后调用上文提及的\tkey{load\_binary}函数，并将\tkey{bprm}作为参数
+传递给它。而对于ELF文件，其最终调用的是\tkey{load\_elf\_binary}函数，由该函数完成ELF的加载工作。
+
+\subsubsection{加载并执行ELF文件}
+
+准备工作完成后，所有和加载有关的信息已经保存在\tkey{bprm}中了，接下来的加载工作就交给了专门处理ELF文件的函数
+\tkey{load\_elf\_binary}了。该函数会根据之前读取的可执行文件的前128字节来检查ELF文件的基本信息，如确定其是否是ELF格式的可执行文件，
+是否符合当前的系统架构等。
+
+检查完可执行文件的信息，\tkey{load\_elf\_binary}会调用\tkey{load\_elf\_phdrs}来加载该ELF文件的程序头表。然后遍历该程序头表，寻找
+\ref{SEC-ELF-Structure}中提到的\tkey{INTERP}类型的段。如果存在该类型的段，则说明该ELF文件是一个动态链接文件，\tkey{load\_elf\_binary}
+便会进行相应的处理（见\ref{SEC-ELF-DynamicLink}一节）。
+
+完成和动态链接相关的工作后，\tkey{load\_elf\_binary}会遍历ELF文件的程序头表，寻找每个为\tkey{LOAD}类型的段。对于每个该类型的段，
+根据其读写和可执行权限、页面对齐参数和虚拟内存地址等参数，调用\tkey{elf\_map}函数，将该段映射到虚拟内存空间中。
+
+完成加载工作后，如果该ELF文件有解释器，则将入口地址设置为解释器程序的入口地址，否则将入口地址设置为ELF文件中ELF头中指定的入口地址。在
+控制流进入入口地址之前，\tkey{load\_elf\_binary}会调用\tkey{create\_elf\_tables}将命令行参数、环境变量和辅助变量等信息装入目标程序
+的堆栈中，使得进入入口地址后目标程序的解释器或者目标程序能够获得相关信息。
+
+最终，\tkey{start\_thread}宏会被调用，CPU从内核进入到目标程序的内存空间的入口地址，从而执行该ELF文件。
+
+
+
+
+%程序执行时，链接器将首先解析ELF文件头中的\textit{段表偏移}（Program Header Offset），进而在ELF文件中定位到\textit{段表}，从而将\textit{段}中的内容通过\textit{mmap}系统调用映射进系统内存。
+%...
+
+\subsection{程序的动态链接}
+\label{SEC-ELF-DynamicLink}
+
+静态库（statistic library）给模块化编程提供了便利，但是静态库需要编译进可执行文件中这一特点有很多缺陷。比如，如果要更新静态库中的
+代码，则需要重新编译所有引用其代码的可执行文件;其次，如果多个运行中的程序引用了同一个静态库，那么物理内存中将会有很多该静态库中代码
+的副本，导致内存浪费。基于此缺陷，共享库（shared library）的概念被提出：共享库并不会被编译进可执行文件中，可执行文件仅保存引用信息。
+在可执行文件被加载进内存时，共享库会被映射到该程序的内存空间中，可执行文件内嵌的解释器根据可执行文件中的引用信息，共享库中查找相关代码
+或变量。

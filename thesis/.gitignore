@@ -1,0 +1,12 @@
+*.log
+*.out
+*.synctex.gz
+_minted-main/
+.DS_Store
+main.pdf
+main.run.xml
+*.aux
+*.bcf
+*.blg
+*.bbl
+*.toc

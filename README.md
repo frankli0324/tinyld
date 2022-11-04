@@ -1,5 +1,9 @@
 # tiny elf loader
 
+see thesis/*
+
+`cd thesis && make thesis`
+
 ## usage
 
 ```sh

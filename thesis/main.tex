@@ -1,0 +1,44 @@
+\documentclass{xduugthesis}
+
+\usepackage{array}
+\usepackage{minted}
+\usepackage{adjustbox}
+\usepackage{booktabs}
+\usepackage{float}
+
+\xdusetup{
+    style = {
+        bib-backend = biblatex,
+        bib-resource = {references.bib}
+    },
+    info = {
+        title = {对Linux环境下恶意软件的隐蔽与反隐蔽思路的探索},
+        department = {***},
+        major = {***},
+        author = {***},
+        supervisor = {***},
+        class-id = {***},
+        student-id = {***},
+        abstract = {abstract-zh.tex},
+        abstract* = {abstract-en.tex},
+        keywords = {Linux,恶意程序,恶意程序隐蔽,装载器},
+        keywords* = {Linux,malware,malware hiding,loader},
+        acknowledgements = {acknowledgements.tex}
+    }
+}
+\begin{document}
+\frontmatter
+\mainmatter
+\newcommand{\tterm}[1]{\textbf{#1}} %术语，只在第一次出现时使用，如：段表、节等
+\newcommand{\tkey}[1]{\textit{#1}} %关键词、函数名等，如：gcc, open
+\newcommand{\tb}[1]{\textbf{#1}}
+\renewcommand{\listingscaption}{代码清单}
+
+\input{chapters/1-introduction.tex}
+\input{chapters/2-background.tex}
+\input{chapters/3-design.tex}
+\input{chapters/4-results.tex}
+\input{chapters/5-conclusion.tex}
+
+\backmatter
+\end{document}

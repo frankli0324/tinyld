@@ -7,7 +7,7 @@ SRC = dlopen.c dlsym.c dlclose.c $(wildcard syscalls/*.c) $(wildcard libc/*.c)
 HEADER = tinyld.h internals.h syscalls.h libc.h
 OBJS = $(SRC:.c=.o)
 LDFLAGS =
-CFLAGS = -Wall -fPIC
+CFLAGS = -Wall -fPIC -g
 # CFLAGS += -pipe -Wall -Wextra -fPIC -fno-ident -fno-stack-protector -U _FORTIFY_SOURCE
 # CFLAGS += -DSTDLIB=$(STDLIB)
 CFLAGS_i386 = -m32
@@ -27,7 +27,7 @@ tinyld.a: prebuild $(OBJS)
 	ar rcs $@ $(filter-out prebuild, $^)
 
 %.o: %.c $(HEADER)
-	$(CC) -c -o $@ $< $(LDFLAGS)
+	$(CC) -c -o $@ $< $(CFLAGS) $(LDFLAGS)
 
 prebuild:
 	rm arch/target

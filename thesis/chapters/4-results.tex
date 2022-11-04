@@ -1,0 +1,185 @@
+\chapter{Tinyld的运行情况与测试分析}
+
+\section{运行状态与分析}
+
+在完成了上一章描述的相关逻辑的实现之后，我们就可以编写一个简单的程序，用来测试tinyld是否可以正常运行。为了简化测试工作，本文使用的测试程序的功能
+仅为打印特定的字符串，但在实际应用中，Stager的功能可以极为复杂多样。代码清单\ref{LST-test-lib}调用了C语言标准库中的\tkey{puts}函数，可以
+经编译得到一份用于装载的ELF动态链接库文件。
+
+\begin{listing}
+\caption{测试用ELF文件}
+\label{LST-test-lib}
+\begin{minted}[encoding=utf8,linenos,frame=single,breaklines]{c}
+#include <stdio.h>
+int execute(int argc, char **argv) {
+    puts("test call puts\n");
+    return 0;
+}
+// 编译命令：gcc -shared -fPIC -o libc.so main.c
+\end{minted}
+\end{listing}
+
+为了反映出tinyld并没有对文件系统中的文件进行读写，主程序使用Linux操作系统的网络API监听特定unix domain socket，将接收到的数据装载、运行。
+其大体逻辑如代码清单\ref{LST-test-code}所示。其运行效果如图\ref{FIG-runresult}所示。
+
+\begin{listing}
+\caption{用于装载测试用ELF文件的程序逻辑}
+\label{LST-test-code}
+\begin{minted}[encoding=utf8,linenos,frame=single,breaklines]{c}
+void fork_handler(int client_sockfd) {
+    ...; // 略
+    recv(client_sockfd, &data, ...);
+    close(client_sockfd);
+    // 调用tinyld装载收到的data数据
+    void *handle = t_dlmopen(data, total, RTLD_NOW);
+    // 从装载到内存中的结构中找出程序入口
+    int (*execute)(int, char **) = t_dlsym(handle, "execute");
+    // 并跳转执行
+    execute(0, NULL);
+    t_dlclose(handle);
+    exit(0);
+}
+
+int main(int argc, char **argv) {
+    int srv = bind_listen_unix(argv[1]);
+    while (1) {
+        int client = accept(srv, ...);
+        if (fork() == 0) {
+            fork_handler(client);
+            exit(0);
+        }
+    }
+    return 0;
+}
+\end{minted}
+\end{listing}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/runresult.png}
+    \caption{tinyld运行效果}
+    \label{FIG-runresult}
+\end{figure}
+
+可以看到，当我们执行向程序所监听的socket发送的数据内容为gcc编译出的动态链接库，是一份完整且常规的ELF文件。在tinyld读取到这份文件的内容
+后，tinyld成功装载并执行了这份ELF文件中绝对地址为\textit{0x7ff752424105}的\tkey{execute}函数，打印出了\tkey{test3}字样。
+
+\section{对程序隐蔽效果的测试与分析}
+
+为测试本设计的隐蔽效果，可以利用在线恶意程序分析工具VirusTotal对装载器进行检测。VirusTotal利用至少61个恶意程序分析引擎，包括Avast，ClamAV
+等知名引擎，对上传到网站的文件进行多角度分析。VirusTotal所使用的分析引擎中包含了静态分析引擎、动态分析引擎以及利用机器学习技术对样本进行分析的
+新型分析引擎，是用于检测恶意软件的标杆级产品。
+
+首先我们可以利用在线恶意软件检测平台VirusTotal对本文设计的实验性恶意程序进行检测，检验其作为Dropper的隐蔽性能。
+如表\ref{TAB-AnalysisReport}所示，根据在线分析结果，没有任何使用到的分析引擎判断本设计所产生的ELF装载器为恶意软件。
+
+\begin{table}
+\begin{adjustbox}{width=\columnwidth,center}
+\begin{tabular}{cccc}
+    \toprule
+    Vendor&Result&Vendor&Result\\
+    \midrule
+    Acronis (Static ML)&Undetected&Ad-Aware&Undetected\\
+    AhnLab-V3&Undetected&ALYac&Undetected\\
+    Antiy-AVL&Undetected&Arcabit&Undetected\\
+    Avast&Undetected&Avast-Mobile&Undetected\\
+    Avira (no cloud)&Undetected&Baidu&Undetected\\
+    BitDefender&Undetected&BitDefenderTheta&Undetected\\
+    Bkav Pro&Undetected&ClamAV&Undetected\\
+    CMC&Undetected&Comodo&Undetected\\
+    Cynet&Undetected&Cyren&Undetected\\
+    DrWeb&Undetected&Elastic&Undetected\\
+    Emsisoft&Undetected&eScan&Undetected\\
+    ESET-NOD32&Undetected&F-Secure&Undetected\\
+    Fortinet&Undetected&GData&Undetected\\
+    Gridinsoft&Undetected&Ikarus&Undetected\\
+    Jiangmin&Undetected&K7AntiVirus&Undetected\\
+    K7GW&Undetected&Kaspersky&Undetected\\
+    Kingsoft&Undetected&Lionic&Undetected\\
+    Malwarebytes&Undetected&MAX&Undetected\\
+    MaxSecure&Undetected&McAfee&Undetected\\
+    McAfee-GW-Edition&Undetected&Microsoft&Undetected\\
+    NANO-Antivirus&Undetected&Panda&Undetected\\
+    QuickHeal&Undetected&Rising&Undetected\\
+    Sangfor Engine Zero&Undetected&SentinelOne (Static ML)&Undetected\\
+    Sophos&Undetected&SUPERAntiSpyware&Undetected\\
+    Symantec&Undetected&TACHYON&Undetected\\
+    Tencent&Undetected&Trellix (FireEye)&Undetected\\
+    TrendMicro&Undetected&TrendMicro-HouseCall&Undetected\\
+    VBA32&Undetected&VirIT&Undetected\\
+    ViRobot&Undetected&Yandex&Undetected\\
+    Zillya&Undetected&ZoneAlarm by Check Point&Undetected\\
+    Zoner&Undetected&Alibaba&Unable to process file type\\
+    BitDefenderFalx&Unable to process file type&CrowdStrike Falcon&Unable to process file type\\
+    Cybereason&Unable to process file type&Cylance&Unable to process file type\\
+    Palo Alto Networks&Unable to process file type&SecureAge APEX&Unable to process file type\\
+    Symantec Mobile Insight&Unable to process file type&TEHTRIS&Unable to process file type\\
+    Trapmine&Unable to process file type&Trustlook&Unable to process file type\\
+    % Webroot&Unable to process file type&&\\
+    \bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{VirusTotal利用多个引擎对tinyld的扫描分析结果}
+\label{TAB-AnalysisReport}
+% https://www.virustotal.com/gui/file/88246305418a67c282befe7dd071343f6c2fa04b41694405bcdfd459b4ec75bd/detection
+\end{table}
+
+由于本装载器能够从多种途径（如内存、网络等位置）装载Stager，不触发保护软件对Stager的检测，本文采用\tkey{strace}工具对恶意程序进行行为追踪，
+从中分析可疑的行为。特别地，本文利用\tkey{strace}过滤出所有\tkey{open}与\tkey{openat}系统调用，查看进程打开的文件中是否包含了被执行的
+ELF文件。
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\textwidth]{images/strace.png}
+    \caption{利用strace对tinyld进行分析}
+    \label{FIG-strace}
+\end{figure}
+
+如图\ref{FIG-strace}所示，本文首先利用\tkey{cat}指令证明了\tkey{strace}命令能够正常工作，表现出了\tkey{cat}指令打开\tkey{/dev/null}
+文件的行为，随后在\tkey{strace}的审计下重复了上文的实验，证明了tinyld并没有直接打开被执行的ELF文件。
+
+综上，本设计可以证明，在现有的绝大多数保护体系下，恶意软件的Dropper部分在感染目标的过程中不触发保护软件的干预措施是可能的。
+
+\section{检测与防御手段}
+
+本文中设计的恶意程序Dropper组件实现了“装载ELF”这一简单而又常规的功能，但由于其没有对真正的恶意代码进行文件层面的读写，更不用提以常规途径（如
+\tkey{execve}）执行恶意代码，大大提高了保护软件在恶意文件扫描与静态分析层面对系统进行保护的难度。除本文中已经实现的功能外，Dropper与远程服务
+进行通信的过程中还可以通过对传输的ELF进行混淆与加密，在装载时分阶段解密，这样既可以复用已有的ELF攻击载荷（只需编写载荷的编码器即可），又可以防止
+载荷被网络防火墙检测与拦截。Dropper甚至可以将攻击载荷隐藏于正常的业务流量中，进一步提高检测的难度。
+
+本文提出几点可能的防御手段：
+
+\subsection{代码签名}
+
+这一手段从Dropper入手，意图阻止任何未经授权的程序运行。
+现代的Windows操作系统已经实现了较为完善的代码签名与认证机制，这一机制虽然存在一些固有的缺陷，但仍然有效地阻止了许多恶意程序的非授权运行。MacOS
+与苹果公司移动端设备所使用的Darwin内核不仅实现了代码的签名（codesign机制），更是利用这一机制严格控制平台上分发软件的质量。Linux
+操作系统由于其自由开放的性质，很难形成一个统一的证书签发机制，但随着近年来密码学的逐步发展，也随着开源社区的不断扩大，安全研究者已经逐渐有能力实
+现一套基于代码签名保护系统免于运行可疑的程序。
+
+我们可以构建这样一套系统，其含有下面两部分组件：
+
+\begin{enumerate}
+\item 部署端，以终端的形式呈现，面向开发者与运维人员，可以供需要部署新程序的人员使用；
+\item 服务端，以Linux内核模块的形式呈现，用于控制新进程的产生。
+\end{enumerate}
+
+若利用公私钥签名体系，在服务端内核模块中存储用于验证签名的公钥，在部署端存储用于代码签名的私钥。部署端所进行的\tkey{execve}调用，自动对目标
+程序进行代码签名。进一步讲，可以结合PKI证书分发机制为不同的人员颁发不同的证书，用于追溯程序部署的历史版本与来源。对于服务端运行环境中已有的程序，
+可以预先进行签名。
+
+\subsection{行为检测}
+
+当下而言，我们只能从程序的行为角度入手，记录并追踪程序对系统做出的变更，用户态程序的行为通常也可以通过利用内核模块进行监控。
+我们还可以利用模式匹配、机器学习等手段判断程序行为的威胁。这一技术在Windows平台下已经发展成熟，随着桌面端Linux用户量的不断上升，
+这一技术也会自然地逐渐移植到Linux平台。
+
+\section{缺陷与盲区}
+
+受限于\tterm{glibc}庞杂且相互依赖的套件，本文设计的装载器并不能完整地装载\textit{任何}动态链接的ELF程序。\tterm{glibc}中，装载器、链接器与标准运行
+库相互依赖：为了装载一个共享库，\tterm{glibc}需要创建并维护一个\tkey{link\_map}结构链表，用于追踪ELF文件之间的依赖关系。也就是说，
+为了完美地装载ELF文件，我们需要在内存中构建与\tterm{glibc}定义完全一致的\tkey{link\_map}列表。而出于历史原因，标准中\tkey{link\_map}
+结构的元素大小不固定\cite{LinkMap}，这导致\tterm{glibc}实现的\tkey{link\_map}与libc的具体实现深度绑定。
+
+由于上述原因，若要实现功能完整的、能够装载\tterm{glibc}编译出的ELF文件，我们必须完整地实现libc，这不仅导致装载器将与\tterm{glibc}一样大，
+也就是说与静态链接\tterm{glibc}几乎无异，而且也非常不现实。
